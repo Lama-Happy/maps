@@ -1,0 +1,1941 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CineMap — Motion Design Cartographique</title>
+<link rel="icon" href="favicon.png" type="image/x-icon">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap');
+
+  :root {
+    --bg: #0a0a0b;
+    --surface: #111114;
+    --border: #1e1e24;
+    --accent: #c8f060;
+    --accent2: #60c8f0;
+    --text: #e8e8ec;
+    --muted: #555560;
+    --danger: #f06060;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    grid-template-rows: 48px 1fr;
+    overflow: hidden;
+  }
+
+  /* MAP WRAPPER — centres the 16:9 viewport */
+  .map-wrapper {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+  }
+
+  .map-16-9 {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    width: 100%;
+    max-height: 100%;
+    max-width: calc(100vh * 16 / 9 - 48px * 16 / 9);
+    overflow: hidden;
+  }
+
+  /* HEADER */
+  header {
+    grid-column: 1 / -1;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+  }
+
+  .logo {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+    flex-shrink: 0;
+  }
+
+  .logo span { color: var(--muted); font-size: 11px; font-style: normal; font-family: 'DM Mono', monospace; margin-left: 8px; }
+
+  .header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+  .select-mini {
+    width: auto;
+    padding: 5px 8px;
+    font-size: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+  }
+  .select-mini:hover { border-color: var(--muted); }
+
+  /* SIDEBAR */
+  aside {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .section {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  /* API KEY */
+  .api-row {
+    display: flex;
+    gap: 6px;
+  }
+
+  input[type="text"], input[type="number"], select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    padding: 7px 10px;
+    border-radius: 4px;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.15s;
+  }
+
+  input:focus, select:focus { border-color: var(--accent); }
+
+  /* TABS */
+  .tab-bar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 10px 0;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* TOOL ROW (Pays / Point / Texte / Image) */
+  .tool-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .tool-btn {
+    flex: 1;
+    min-width: 64px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    padding: 7px 4px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .tool-btn:hover { color: var(--text); border-color: var(--muted); }
+  .tool-btn.active { background: var(--accent); color: #0a0a0b; border-color: var(--accent); font-weight: 500; }
+
+  .country-search-row { margin-top: 8px; }
+
+  /* KEYFRAMES / ELEMENTS LIST (shared style) */
+  .kf-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .kf-list::-webkit-scrollbar { width: 3px; }
+  .kf-list::-webkit-scrollbar-track { background: transparent; }
+  .kf-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .kf-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    cursor: pointer;
+    position: relative;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .kf-item:hover { border-color: var(--muted); }
+  .kf-item.active { border-color: var(--accent); background: #111a00; }
+
+  .kf-num { font-size: 9px; color: var(--muted); letter-spacing: 1px; }
+  .kf-coords { font-size: 10px; color: var(--text); margin-top: 3px; }
+  .kf-meta { font-size: 9px; color: var(--accent2); margin-top: 2px; }
+
+  .kf-delete {
+    position: absolute;
+    top: 8px; right: 8px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .kf-delete:hover { color: var(--danger); background: #1a0000; }
+
+  .kf-empty {
+    text-align: center;
+    color: var(--muted);
+    font-size: 11px;
+    padding: 24px 0;
+    line-height: 1.8;
+  }
+
+  /* ELEMENTS PANEL ITEMS */
+  .el-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: opacity 0.15s;
+  }
+  .el-item.el-hidden { opacity: 0.4; }
+  .el-icon { font-size: 13px; flex-shrink: 0; }
+  .el-label {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    padding: 2px;
+    outline: none;
+    min-width: 0;
+  }
+  .el-label:focus { border-bottom: 1px solid var(--accent); }
+  .el-controls { display: flex; gap: 1px; flex-shrink: 0; }
+  .el-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 3px 4px;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .el-btn:hover { color: var(--text); background: #1a1a20; }
+  .el-btn:disabled { opacity: 0.2; cursor: default; }
+  .el-btn:disabled:hover { background: none; color: var(--muted); }
+  .el-btn-danger:hover { color: var(--danger); background: #1a0000; }
+
+  /* BOTTOM PANEL */
+  .bottom-panel {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .settings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .field-label {
+    font-size: 9px;
+    color: var(--muted);
+    margin-bottom: 3px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* BUTTONS */
+  .btn {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    padding: 8px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+  }
+
+  .btn-ghost { background: transparent; color: var(--muted); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #0a0a0b;
+    border-color: var(--accent);
+    font-weight: 500;
+  }
+  .btn-primary:hover { background: #d8ff70; }
+  .btn-primary:disabled { background: var(--border); color: var(--muted); border-color: var(--border); cursor: not-allowed; }
+
+  .btn-accent2 { background: transparent; color: var(--accent2); border-color: var(--accent2); }
+  .btn-accent2:hover { background: #001a22; }
+
+  .btn-danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+
+  .btn-full { width: 100%; text-align: center; }
+
+  /* MAP */
+  #map { width: 100%; height: 100%; position: absolute; inset: 0; }
+
+  .map-hint {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10,10,11,0.85);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 11px;
+    color: var(--muted);
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 10;
+    transition: opacity 0.3s;
+    max-width: 80%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* PROGRESS OVERLAY */
+  #progress-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(10,10,11,0.92);
+    backdrop-filter: blur(12px);
+    z-index: 1000;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+  }
+
+  #progress-overlay.visible { display: flex; }
+
+  .progress-title { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 28px; color: var(--accent); }
+
+  .progress-bar-wrap { width: 320px; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.1s; width: 0%; }
+  .progress-info { font-size: 11px; color: var(--muted); }
+
+  /* PLAYBACK indicator */
+  #playback-bar { display: none; position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: var(--border); z-index: 5; }
+  #playback-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.05s linear; }
+
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+  .status-dot.ok { background: var(--accent); }
+  .status-dot.rec { background: var(--danger); animation: pulse 1s infinite; }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .tag { font-size: 9px; padding: 2px 6px; border-radius: 3px; background: var(--border); color: var(--muted); letter-spacing: 1px; }
+  .tag.live { background: #1a0000; color: var(--danger); }
+
+  /* API KEY POPUP */
+  #api-popup {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    background: rgba(10,10,11,0.88);
+    backdrop-filter: blur(14px);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+  }
+  #api-popup.hidden { display: none; }
+
+  .popup-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 32px 28px;
+    width: 360px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .popup-title { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 22px; color: var(--accent); }
+  .popup-desc { font-size: 11px; color: var(--muted); line-height: 1.7; }
+
+  .popup-key-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 9px 12px;
+  }
+
+  .popup-key-val { flex: 1; font-size: 12px; color: var(--accent2); letter-spacing: 0.5px; user-select: all; word-break: break-all; }
+
+  .btn-copy {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--accent2);
+    background: transparent;
+    color: var(--accent2);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .btn-copy:hover { background: #001a22; }
+  .btn-copy.copied { border-color: var(--accent); color: var(--accent); }
+
+  .maplibregl-ctrl-group { background: var(--surface) !important; border: 1px solid var(--border) !important; }
+  .maplibregl-ctrl-group button { background: transparent !important; }
+  .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1); }
+  .maplibregl-ctrl-attrib { display: none !important; }
+
+  /* MAP SEARCH BAR */
+  .map-search { position: absolute; top: 14px; left: 14px; z-index: 12; width: 280px; }
+  .map-search-row { display: flex; gap: 6px; }
+  .map-search input[type="text"] { background: rgba(10,10,11,0.85); backdrop-filter: blur(8px); }
+
+  .btn-search {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    padding: 7px 11px;
+    border-radius: 4px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #0a0a0b;
+    cursor: pointer;
+    transition: background 0.15s;
+    flex-shrink: 0;
+  }
+  .btn-search:hover { background: #d8ff70; }
+  .btn-search:disabled { background: var(--border); border-color: var(--border); color: var(--muted); cursor: not-allowed; }
+
+  .search-results {
+    margin-top: 6px;
+    background: rgba(17,17,20,0.96);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow-y: auto;
+    max-height: 260px;
+    display: none;
+  }
+  .search-results.visible { display: block; }
+  .search-results::-webkit-scrollbar { width: 3px; }
+  .search-results::-webkit-scrollbar-track { background: transparent; }
+  .search-results::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .search-result-item { padding: 9px 12px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+  .search-result-item:last-child { border-bottom: none; }
+  .search-result-item:hover { background: #1a1a20; }
+  .search-result-name { font-size: 11px; color: var(--text); }
+  .search-result-context { font-size: 9px; color: var(--muted); margin-top: 2px; letter-spacing: 0.5px; }
+  .search-empty, .search-loading { padding: 10px 12px; font-size: 10px; color: var(--muted); }
+
+  /* EDITOR MODAL (generic — used by Country/Point/Texte/Image overlays) */
+  #editor-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(10,10,11,0.7);
+    backdrop-filter: blur(6px);
+    z-index: 1500;
+    align-items: center;
+    justify-content: center;
+  }
+  #editor-modal-overlay.visible { display: flex; }
+
+  .modal-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 22px;
+    width: 320px;
+    max-height: 80vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .modal-box-title { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 17px; color: var(--accent); word-break: break-word; }
+  .modal-field { display: flex; flex-direction: column; gap: 5px; }
+  .modal-field label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .modal-field input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .modal-field input[type="color"] {
+    width: 100%; height: 30px; border: 1px solid var(--border);
+    border-radius: 4px; background: var(--bg); padding: 2px; cursor: pointer;
+  }
+  .range-val { font-size: 10px; color: var(--accent2); text-align: right; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CineMap <span>v2.0 — motion design cartographique</span></div>
+  <div class="header-actions">
+    <select id="projection-select" class="select-mini" onchange="GlobeEngine.setMode(this.value)" title="Projection">
+      <option value="globe" selected>🌐 Globe</option>
+      <option value="flat">▭ Flat</option>
+    </select>
+    <select id="style-select" class="select-mini" onchange="StyleEngine.switch(this.value)" title="Style de carte">
+      <option value="satellite" selected>Satellite</option>
+      <option value="hybrid">Hybrid</option>
+      <option value="streets">Streets</option>
+      <option value="basic">Basic</option>
+      <option value="bright">Bright</option>
+      <option value="topo">Topo</option>
+      <option value="dark">Dark</option>
+    </select>
+    <span id="status-dot" class="status-dot"></span>
+    <span id="status-text" style="font-size:10px;color:var(--muted)">Entrez votre clé API</span>
+    <span id="rec-tag" class="tag" style="display:none">REC</span>
+  </div>
+</header>
+
+<aside>
+  <!-- API KEY -->
+  <div class="section">
+    <div class="section-label">Clé API Maptiler</div>
+    <div class="api-row">
+      <input type="text" id="api-key" placeholder="Collez votre clé ici..." autocomplete="off">
+      <button class="btn btn-primary" onclick="initMap()" style="white-space:nowrap;padding:7px 12px">OK</button>
+    </div>
+    <div style="margin-top:6px;font-size:9px;color:var(--muted)">
+      Gratuit sur <span style="color:var(--accent2)">cloud.maptiler.com</span> → API Keys
+    </div>
+  </div>
+
+  <!-- TABS: Keyframes / Éléments -->
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tabbtn-kf" onclick="switchTab('kf')">Keyframes</button>
+    <button class="tab-btn" id="tabbtn-el" onclick="switchTab('el')">Éléments</button>
+  </div>
+
+  <!-- TAB: KEYFRAMES -->
+  <div class="tab-panel" id="tab-keyframes" style="display:flex">
+    <div class="section" style="border-bottom:none;padding-bottom:6px">
+      <div class="section-label" style="margin-bottom:6px">Keyframes
+        <span style="float:right;color:var(--accent2)" id="kf-count">0 / 10</span>
+      </div>
+      <button class="btn btn-accent2 btn-full" onclick="captureKeyframe()" id="btn-capture" disabled>
+        + Capturer la vue actuelle
+      </button>
+    </div>
+    <div class="kf-list" id="kf-list">
+      <div class="kf-empty">Entrez votre clé API<br>puis naviguez sur la carte<br>et capturez des vues</div>
+    </div>
+  </div>
+
+  <!-- TAB: ÉLÉMENTS (Overlay Engine UI) -->
+  <div class="tab-panel" id="tab-elements" style="display:none">
+    <div class="section" style="border-bottom:none;padding-bottom:6px">
+      <div class="section-label" style="margin-bottom:6px">Éléments</div>
+      <div class="tool-row">
+        <button class="tool-btn" data-tool="country" onclick="ToolEngine.toggle('country')">🌍 Pays</button>
+        <button class="tool-btn" data-tool="point" onclick="ToolEngine.toggle('point')">📍 Point</button>
+        <button class="tool-btn" data-tool="text" onclick="ToolEngine.toggle('text')">🔤 Texte</button>
+        <button class="tool-btn" data-tool="image" onclick="ToolEngine.startImage()">🖼 Image</button>
+      </div>
+      <div class="country-search-row" id="country-search-row" style="display:none">
+        <input type="text" id="country-search-input" list="country-datalist" placeholder="Rechercher un pays...">
+        <datalist id="country-datalist"></datalist>
+      </div>
+    </div>
+    <div class="kf-list" id="elements-list">
+      <div class="kf-empty">Ajoutez un pays, un point,<br>un texte ou une image<br>avec les boutons ci-dessus</div>
+    </div>
+    <div style="padding:0 16px 12px">
+      <button class="btn btn-ghost btn-full" onclick="OverlayEngine.clearAll()" style="font-size:10px;color:var(--danger);border-color:transparent">Vider les éléments</button>
+    </div>
+  </div>
+
+  <!-- SETTINGS / EXPORT -->
+  <div class="bottom-panel">
+    <div class="section-label">Paramètres export</div>
+    <div class="settings-grid">
+      <div>
+        <div class="field-label">Durée / keyframe</div>
+        <input type="number" id="kf-duration" value="4" min="1" max="20" step="0.5">
+      </div>
+      <div>
+        <div class="field-label">FPS</div>
+        <select id="fps-select">
+          <option value="24">24 fps</option>
+          <option value="30" selected>30 fps</option>
+          <option value="60">60 fps</option>
+        </select>
+      </div>
+      <div>
+        <div class="field-label">Résolution</div>
+        <select id="res-select">
+          <option value="1280x720">720p</option>
+          <option value="1920x1080" selected>1080p</option>
+          <option value="2560x1440">1440p</option>
+          <option value="3840x2160">4K</option>
+        </select>
+      </div>
+      <div>
+        <div class="field-label">Easing</div>
+        <select id="easing-select">
+          <option value="ease-in-out" selected>Ease in-out</option>
+          <option value="ease-out">Ease out</option>
+          <option value="linear">Linear</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-top:4px">
+      <button class="btn btn-ghost" style="flex:1" onclick="previewAnimation()" id="btn-preview" disabled>▶ Aperçu</button>
+      <button class="btn btn-primary" style="flex:2" onclick="startExport()" id="btn-export" disabled>⬇ Exporter MP4</button>
+    </div>
+    <button class="btn btn-ghost btn-full" onclick="clearAll()" id="btn-clear" style="font-size:10px;color:var(--danger);border-color:transparent">Tout effacer (keyframes)</button>
+  </div>
+</aside>
+
+<!-- MAP -->
+<div class="map-wrapper">
+  <div class="map-16-9">
+    <div id="map"></div>
+
+    <!-- SEARCH BAR -->
+    <div class="map-search" id="map-search">
+      <div class="map-search-row">
+        <input type="text" id="search-input" placeholder="Rechercher un lieu, une ville, une adresse..." autocomplete="off">
+        <button class="btn-search" id="btn-search" onclick="doSearch()">→</button>
+      </div>
+      <div class="search-results" id="search-results"></div>
+    </div>
+
+    <div id="playback-bar"><div id="playback-fill"></div></div>
+    <div class="map-hint" id="map-hint">Entrez votre clé API Maptiler pour commencer</div>
+  </div>
+</div>
+
+<!-- API KEY POPUP -->
+<div id="api-popup">
+  <div class="popup-box">
+    <div class="popup-title">CineMap</div>
+    <div class="popup-desc">
+      Bienvenue ! Voici votre clé API Maptiler.<br>
+      Copiez-la, collez-la dans le champ à gauche, et c'est parti.
+    </div>
+    <div>
+      <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Clé API</div>
+      <div class="popup-key-row">
+        <div class="popup-key-val" id="popup-key-display">06HKMOKTruPFJKSxuFxX</div>
+        <button class="btn-copy" id="btn-copy-popup" onclick="copyApiKey()">Copier</button>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-full" onclick="closePopupAndFill()">Utiliser cette clé →</button>
+    <div style="font-size:9px;color:var(--muted);text-align:center">ou fermez pour entrer une autre clé manuellement</div>
+  </div>
+</div>
+
+<!-- PROGRESS OVERLAY -->
+<div id="progress-overlay">
+  <div class="progress-title">Rendu en cours...</div>
+  <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-fill"></div></div>
+  <div class="progress-info" id="progress-info">Initialisation...</div>
+  <button class="btn btn-ghost" onclick="cancelExport()" style="margin-top:8px">Annuler</button>
+</div>
+
+<!-- GENERIC OVERLAY EDITOR MODAL (Country/Point/Texte/Image) -->
+<div id="editor-modal-overlay" onclick="if(event.target===this) OverlayEngine.closeEditor()">
+  <div class="modal-box">
+    <div class="modal-box-title" id="modal-title">Options</div>
+    <div id="modal-fields"></div>
+    <button class="btn btn-primary btn-full" onclick="OverlayEngine.closeEditor()">Fermer</button>
+  </div>
+</div>
+
+<!-- Hidden file input used by the Image Engine -->
+<input type="file" id="image-upload-input" accept="image/*" style="display:none">
+
+<script>
+/* =========================================================================
+   CINEMAP v2 — ARCHITECTURE
+   - Camera Engine     : keyframes, interpolation, preview, capture
+   - Globe Engine       : projection (globe / mercator)
+   - Style Engine        : MapTiler style switching, live, overlay-safe
+   - Overlay Engine (générique) : modèle de données + moteur générique
+       - Country Shape Engine : frontières exactes (lazy-load par pays)
+       - Point Engine          : points (dot / circle / pin)
+       - Text Engine           : textes éditables
+       - Image Engine          : images géoréférencées (image source)
+   - Tool Engine          : modes d'ajout (+Pays/+Point/+Texte/+Image)
+   - Export Engine        : capture vidéo MP4/WebM (canvas.captureStream)
+   ========================================================================= */
+
+const API_KEY_PRESET = '06HKMOKTruPFJKSxuFxX';
+
+function copyApiKey() {
+  navigator.clipboard.writeText(API_KEY_PRESET).then(() => {
+    const btn = document.getElementById('btn-copy-popup');
+    btn.textContent = '✓ Copié !';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copier'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+
+function closePopupAndFill() {
+  document.getElementById('api-key').value = API_KEY_PRESET;
+  document.getElementById('api-popup').classList.add('hidden');
+  initMap();
+}
+
+// ─── ÉTAT GLOBAL ────────────────────────────────────────────────────────────
+let map = null;
+let keyframes = [];
+let isRecording = false;
+let cancelRequested = false;
+let mediaRecorder = null;
+let recordedChunks = [];
+let currentApiKey = '';
+let searchDebounceTimer = null;
+let lastSearchResults = [];
+
+let projectionMode = 'globe';   // 'globe' | 'flat'
+let currentStyleKey = 'satellite';
+let overlayIdCounter = 1;
+
+// Modèle d'overlays : { countries:[], points:[], texts:[], images:[] }
+let overlays = { countries: [], points: [], texts: [], images: [] };
+// Ordre d'affichage global (index 0 = haut de la liste = rendu au-dessus)
+let overlayOrder = [];
+
+// ─── DONNÉES PAYS (léger : alpha3:alpha2:nomFrançais) ──────────────────────
+// Les frontières elles-mêmes ne sont JAMAIS embarquées ici : elles sont
+// chargées à la demande (lazy-load) — voir Country Shape Engine plus bas.
+const COUNTRY_LIST_RAW = `
+AFG:AF:Afghanistan,ALB:AL:Albanie,DZA:DZ:Algérie,AGO:AO:Angola,ATA:AQ:Antarctique,ARG:AR:Argentine,ARM:AM:Arménie,AUS:AU:Australie,AUT:AT:Autriche,AZE:AZ:Azerbaïdjan,BGD:BD:Bangladesh,BLR:BY:Biélorussie,BEL:BE:Belgique,BLZ:BZ:Belize,BEN:BJ:Bénin,BMU:BM:Bermudes,BTN:BT:Bhoutan,BOL:BO:Bolivie,BIH:BA:Bosnie-Herzégovine,BWA:BW:Botswana,BRA:BR:Brésil,BRN:BN:Brunei,BGR:BG:Bulgarie,BFA:BF:Burkina Faso,BDI:BI:Burundi,KHM:KH:Cambodge,CMR:CM:Cameroun,CAN:CA:Canada,CAF:CF:République centrafricaine,TCD:TD:Tchad,CHL:CL:Chili,CHN:CN:Chine,COL:CO:Colombie,CRI:CR:Costa Rica,HRV:HR:Croatie,CUB:CU:Cuba,CYP:CY:Chypre,CZE:CZ:Tchéquie,COD:CD:Congo (Rép. dém.),DNK:DK:Danemark,DJI:DJ:Djibouti,DOM:DO:République dominicaine,TLS:TL:Timor oriental,ECU:EC:Équateur,EGY:EG:Égypte,SLV:SV:Salvador,GNQ:GQ:Guinée équatoriale,ERI:ER:Érythrée,EST:EE:Estonie,ETH:ET:Éthiopie,FLK:FK:Îles Malouines,FJI:FJ:Fidji,FIN:FI:Finlande,FRA:FR:France,GUF:GF:Guyane,ATF:TF:Terres australes et antarctiques françaises,GAB:GA:Gabon,GMB:GM:Gambie,GEO:GE:Géorgie,DEU:DE:Allemagne,GHA:GH:Ghana,GRC:GR:Grèce,GRL:GL:Groenland,GTM:GT:Guatemala,GIN:GN:Guinée,GNB:GW:Guinée-Bissau,GUY:GY:Guyana,HTI:HT:Haïti,HND:HN:Honduras,HUN:HU:Hongrie,ISL:IS:Islande,IND:IN:Inde,IDN:ID:Indonésie,IRN:IR:Iran,IRQ:IQ:Irak,IRL:IE:Irlande,ISR:IL:Israël,ITA:IT:Italie,CIV:CI:Côte d'Ivoire,JAM:JM:Jamaïque,JPN:JP:Japon,JOR:JO:Jordanie,KAZ:KZ:Kazakhstan,KEN:KE:Kenya,KWT:KW:Koweït,KGZ:KG:Kirghizistan,LAO:LA:Laos,LVA:LV:Lettonie,LBN:LB:Liban,LSO:LS:Lesotho,LBR:LR:Liberia,LBY:LY:Libye,LTU:LT:Lituanie,LUX:LU:Luxembourg,MKD:MK:Macédoine du Nord,MDG:MG:Madagascar,MWI:MW:Malawi,MYS:MY:Malaisie,MLI:ML:Mali,MLT:MT:Malte,MRT:MR:Mauritanie,MEX:MX:Mexique,MDA:MD:Moldavie,MNG:MN:Mongolie,MNE:ME:Monténégro,MAR:MA:Maroc,MOZ:MZ:Mozambique,MMR:MM:Birmanie,NAM:NA:Namibie,NPL:NP:Népal,NLD:NL:Pays-Bas,NCL:NC:Nouvelle-Calédonie,NZL:NZ:Nouvelle-Zélande,NIC:NI:Nicaragua,NER:NE:Niger,NGA:NG:Nigéria,PRK:KP:Corée du Nord,NOR:NO:Norvège,OMN:OM:Oman,PAK:PK:Pakistan,PAN:PA:Panama,PNG:PG:Papouasie-Nouvelle-Guinée,PRY:PY:Paraguay,PER:PE:Pérou,PHL:PH:Philippines,POL:PL:Pologne,PRT:PT:Portugal,PRI:PR:Porto Rico,QAT:QA:Qatar,SRB:RS:Serbie,COG:CG:Congo,ROU:RO:Roumanie,RUS:RU:Russie,RWA:RW:Rwanda,SAU:SA:Arabie Saoudite,SEN:SN:Sénégal,SLE:SL:Sierra Leone,SVK:SK:Slovaquie,SVN:SI:Slovénie,SLB:SB:Îles Salomon,SOM:SO:Somalie,ZAF:ZA:Afrique du Sud,KOR:KR:Corée du Sud,SSD:SS:Soudan du Sud,ESP:ES:Espagne,LKA:LK:Sri Lanka,SDN:SD:Soudan,SUR:SR:Surinam,SWZ:SZ:Eswatini,SWE:SE:Suède,CHE:CH:Suisse,SYR:SY:Syrie,TWN:TW:Taïwan,TJK:TJ:Tadjikistan,THA:TH:Thaïlande,BHS:BS:Bahamas,TGO:TG:Togo,TTO:TT:Trinité-et-Tobago,TUN:TN:Tunisie,TUR:TR:Turquie,TKM:TM:Turkménistan,UGA:UG:Ouganda,UKR:UA:Ukraine,ARE:AE:Émirats arabes unis,GBR:GB:Royaume-Uni,TZA:TZ:Tanzanie,USA:US:États-Unis,URY:UY:Uruguay,UZB:UZ:Ouzbékistan,VUT:VU:Vanuatu,VEN:VE:Venezuela,VNM:VN:Viêt Nam,PSE:PS:Palestine,ESH:EH:Sahara Occidental,YEM:YE:Yémen,ZMB:ZM:Zambie,ZWE:ZW:Zimbabwe`;
+const COUNTRY_LIST = COUNTRY_LIST_RAW.trim().split(',').map(s => {
+  const [iso3, iso2, name] = s.split(':');
+  return { iso3, iso2, name };
+});
+const ALPHA2_TO_3 = {};
+COUNTRY_LIST.forEach(c => { ALPHA2_TO_3[c.iso2] = c.iso3; });
+
+// ─── EASING ────────────────────────────────────────────────────────────────
+function easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+function easeOut(t) { return t * (2 - t); }
+function linear(t) { return t; }
+
+function getEasing() {
+  const v = document.getElementById('easing-select').value;
+  return v === 'ease-in-out' ? easeInOut : v === 'ease-out' ? easeOut : linear;
+}
+
+// ─── INTERPOLATION ─────────────────────────────────────────────────────────
+function lerpAngle(a, b, t) {
+  let diff = b - a;
+  while (diff > 180) diff -= 360;
+  while (diff < -180) diff += 360;
+  return a + diff * t;
+}
+
+function interpolateKF(kf1, kf2, t) {
+  const ease = getEasing();
+  const et = ease(t);
+  return {
+    lng: kf1.lng + (kf2.lng - kf1.lng) * et,
+    lat: kf1.lat + (kf2.lat - kf1.lat) * et,
+    zoom: kf1.zoom + (kf2.zoom - kf1.zoom) * et,
+    bearing: lerpAngle(kf1.bearing, kf2.bearing, et),
+    pitch: kf1.pitch + (kf2.pitch - kf1.pitch) * et,
+  };
+}
+
+// ─── UTILITAIRES PARTAGÉS ───────────────────────────────────────────────────
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
+function flashHint(msg) {
+  const el = document.getElementById('map-hint');
+  if (el) el.textContent = msg;
+}
+
+function emptyFC() { return { type: 'FeatureCollection', features: [] }; }
+
+// =========================================================================
+// GLOBE ENGINE — projection globe / mercator, transitions compatibles
+// avec les keyframes (la caméra — center/zoom/bearing/pitch — est
+// indépendante de la projection, donc flyTo/jumpTo fonctionnent à l'identique)
+// =========================================================================
+const GlobeEngine = {
+  setMode(mode) {
+    projectionMode = mode;
+    if (map) map.setProjection({ type: mode === 'flat' ? 'mercator' : 'globe' });
+  },
+  apply() {
+    if (map) map.setProjection({ type: projectionMode === 'flat' ? 'mercator' : 'globe' });
+  }
+};
+
+// =========================================================================
+// STYLE ENGINE — getMapStyle(styleName, apiKey) + changement de style live
+// =========================================================================
+const MAP_STYLES = {
+  // Satellite reste un style raster "fait main" (couleurs cinématiques,
+  // identique au comportement d'origine) — le plus sûr/stable.
+  satellite: { label: 'Satellite' },
+  hybrid:    { label: 'Hybrid',  vectorId: 'hybrid' },
+  streets:   { label: 'Streets', vectorId: 'streets-v2' },
+  basic:     { label: 'Basic',   vectorId: 'basic-v2' },
+  bright:    { label: 'Bright',  vectorId: 'bright-v2' },
+  topo:      { label: 'Topo',    vectorId: 'topo-v2' },
+  // NB: si "dark" ne charge pas avec votre clé/abonnement MapTiler,
+  // changez simplement `vectorId` ci-dessous (cf. cloud.maptiler.com → vos cartes).
+  dark:      { label: 'Dark',    vectorId: 'dataviz-dark' },
+};
+
+function buildSatelliteStyle(apiKey) {
+  return {
+    version: 8,
+    // glyphs requis pour que les overlays "Texte" (symbol layer) s'affichent
+    // même sur ce style raster fait main (sinon pas de police disponible).
+    glyphs: `https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=${apiKey}`,
+    sources: {
+      satellite: {
+        type: 'raster',
+        tiles: [`https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${apiKey}`],
+        tileSize: 256,
+        attribution: '© MapTiler © Airbus'
+      }
+    },
+    layers: [{
+      id: 'satellite',
+      type: 'raster',
+      source: 'satellite',
+      paint: {
+        'raster-saturation': -0.15,
+        'raster-contrast': -0.05,
+        'raster-brightness-min': 0.05,
+        'raster-brightness-max': 0.92,
+        'raster-hue-rotate': 5,
+      }
+    }]
+  };
+}
+
+function getMapStyle(styleKey, apiKey) {
+  if (styleKey === 'satellite' || !MAP_STYLES[styleKey]) return buildSatelliteStyle(apiKey);
+  const cfg = MAP_STYLES[styleKey];
+  return `https://api.maptiler.com/maps/${cfg.vectorId}/style.json?key=${apiKey}`;
+}
+
+const StyleEngine = {
+  switch(styleKey) {
+    currentStyleKey = styleKey;
+    if (!map) return;
+    const camera = {
+      center: map.getCenter(), zoom: map.getZoom(),
+      bearing: map.getBearing(), pitch: map.getPitch()
+    };
+    flashHint('Changement de style...');
+    map.setStyle(getMapStyle(styleKey, currentApiKey));
+    // Reconstruction automatique des overlays après changement de style
+    // (setStyle() remplace sources/layers internes -> nos layers custom
+    // sont détruits, donc on les recrée une fois le nouveau style chargé).
+    map.once('style.load', () => {
+      map.jumpTo(camera);
+      GlobeEngine.apply();
+      OverlayEngine.rebuildAll();
+      flashHint('Naviguez → capturez des vues avec le bouton');
+    });
+  }
+};
+
+// =========================================================================
+// COUNTRY SHAPE ENGINE — frontières exactes, chargées à la demande
+// Source : Natural-Earth (via johan/world.geo.json), 1 fichier par pays,
+// jamais embarqué dans le HTML -> télécharge uniquement le pays demandé.
+// =========================================================================
+const BOUNDARY_BASE = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries/';
+const countryGeomCache = {};
+
+async function fetchCountryGeometry(iso3) {
+  if (countryGeomCache[iso3]) return countryGeomCache[iso3];
+  const res = await fetch(BOUNDARY_BASE + iso3 + '.geo.json');
+  if (!res.ok) throw new Error('boundary-not-found');
+  const gj = await res.json();
+  const feature = (gj.type === 'FeatureCollection') ? gj.features[0] : gj;
+  countryGeomCache[iso3] = feature;
+  return feature;
+}
+
+function bboxOfFeature(feature) {
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  (function walk(coords) {
+    if (typeof coords[0] === 'number') {
+      const [lng, lat] = coords;
+      if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+    } else { coords.forEach(walk); }
+  })(feature.geometry.coordinates);
+  return [[minLng, minLat], [maxLng, maxLat]];
+}
+
+function renderCountryOverlay(item) {
+  if (!map) return;
+  const feature = countryGeomCache[item.iso3];
+  if (!feature) return;
+  const srcId = 'cm-country-src-' + item.id;
+  const fillId = 'cm-country-fill-' + item.id;
+  const lineId = 'cm-country-line-' + item.id;
+  if (!map.getSource(srcId)) {
+    map.addSource(srcId, { type: 'geojson', data: feature });
+    map.addLayer({ id: fillId, type: 'fill', source: srcId,
+      paint: { 'fill-color': item.color, 'fill-opacity': item.opacity } });
+    map.addLayer({ id: lineId, type: 'line', source: srcId,
+      paint: { 'line-color': item.borderColor, 'line-width': item.borderWidth } });
+  }
+  map.setPaintProperty(fillId, 'fill-color', item.color);
+  map.setPaintProperty(fillId, 'fill-opacity', item.opacity);
+  map.setPaintProperty(lineId, 'line-color', item.borderColor);
+  map.setPaintProperty(lineId, 'line-width', item.borderWidth);
+  const vis = item.visible ? 'visible' : 'none';
+  map.setLayoutProperty(fillId, 'visibility', vis);
+  map.setLayoutProperty(lineId, 'visibility', vis);
+}
+
+function removeCountryOverlay(id) {
+  if (!map) return;
+  ['cm-country-fill-' + id, 'cm-country-line-' + id].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+  const srcId = 'cm-country-src-' + id;
+  if (map.getSource(srcId)) map.removeSource(srcId);
+}
+
+async function addCountryByISO3(iso3, doFlyTo) {
+  try { await fetchCountryGeometry(iso3); }
+  catch (e) { flashHint('⚠ Frontière indisponible pour ce pays (zone trop petite)'); return; }
+  const entry = COUNTRY_LIST.find(c => c.iso3 === iso3);
+  const id = 'co_' + (overlayIdCounter++);
+  const item = {
+    id, type: 'country', visible: true, label: entry ? entry.name : iso3, iso3,
+    color: '#c8f060', opacity: 0.25, borderColor: '#c8f060', borderWidth: 2
+  };
+  overlays.countries.push(item);
+  overlayOrder.unshift({ type: 'country', id });
+  renderCountryOverlay(item);
+  OverlayEngine.applyZOrder();
+  OverlayEngine.renderList();
+  if (doFlyTo && map) map.fitBounds(bboxOfFeature(countryGeomCache[iso3]), { padding: 60, duration: 1200 });
+}
+
+function addCountryByName(name) {
+  const norm = (name || '').trim().toLowerCase();
+  if (!norm) return;
+  let entry = COUNTRY_LIST.find(c => c.name.toLowerCase() === norm);
+  if (!entry) entry = COUNTRY_LIST.find(c => c.name.toLowerCase().includes(norm));
+  if (!entry) { flashHint('Pays introuvable dans la liste'); return; }
+  addCountryByISO3(entry.iso3, true);
+}
+
+function extractCountryCode(data) {
+  const feats = data.features || [];
+  for (const f of feats) {
+    if (f.properties && f.properties.country_code) return f.properties.country_code;
+    if (f.country_code) return f.country_code;
+  }
+  for (const f of feats) {
+    const ctx = f.context || [];
+    for (const c of ctx) { if (c.country_code) return c.country_code; if (c.short_code) return c.short_code; }
+  }
+  return null;
+}
+
+async function detectAndAddCountry(lng, lat) {
+  if (!currentApiKey) { flashHint('⚠ Renseignez la clé API'); return; }
+  flashHint('Détection du pays...');
+  try {
+    const res = await fetch(`https://api.maptiler.com/geocoding/${lng},${lat}.json?key=${currentApiKey}`);
+    const data = await res.json();
+    const a2 = extractCountryCode(data);
+    const a3 = a2 && ALPHA2_TO_3[a2.toUpperCase()];
+    if (!a3) { flashHint('Pays introuvable à cet endroit'); return; }
+    addCountryByISO3(a3, false);
+    flashHint('🌍 Cliquez sur la carte ou recherchez un pays');
+  } catch (e) { flashHint('⚠ Erreur de détection du pays'); }
+}
+
+// =========================================================================
+// POINT ENGINE — points (dot / circle / pin), une seule source partagée
+// (perf + pas de duplication de logique entre items).
+// =========================================================================
+const POINT_SRC = 'cm-points-src';
+const POINT_LAYER_DOT = 'cm-points-dot';
+const POINT_LAYER_PIN = 'cm-points-pin';
+let pinIconReady = false;
+
+function ensurePinIcon() {
+  if (!map) return;
+  if (map.hasImage && map.hasImage('cm-pin-icon')) { pinIconReady = true; return; }
+  const size = 48;
+  const c = document.createElement('canvas'); c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.beginPath();
+  ctx.moveTo(size/2, size-2);
+  ctx.bezierCurveTo(size*0.05, size*0.55, size*0.15, 0, size/2, size*0.32);
+  ctx.bezierCurveTo(size*0.85, 0, size*0.95, size*0.55, size/2, size-2);
+  ctx.closePath();
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  map.addImage('cm-pin-icon', ctx.getImageData(0, 0, size, size), { sdf: true });
+  pinIconReady = true;
+}
+
+function ensurePointLayers() {
+  if (!map) return;
+  if (!map.getSource(POINT_SRC)) map.addSource(POINT_SRC, { type: 'geojson', data: emptyFC() });
+  ensurePinIcon();
+  if (!map.getLayer(POINT_LAYER_DOT)) {
+    map.addLayer({
+      id: POINT_LAYER_DOT, type: 'circle', source: POINT_SRC,
+      filter: ['in', ['get', 'icon'], ['literal', ['dot', 'circle']]],
+      paint: {
+        'circle-radius': ['case', ['==', ['get', 'icon'], 'dot'], 5, ['get', 'size']],
+        'circle-color': ['get', 'color'],
+        'circle-opacity': ['case', ['==', ['get', 'icon'], 'circle'], 0.25, 1],
+        'circle-stroke-width': ['case', ['==', ['get', 'icon'], 'circle'], 2, 0],
+        'circle-stroke-color': ['get', 'color'],
+      }
+    });
+  }
+  if (!map.getLayer(POINT_LAYER_PIN)) {
+    map.addLayer({
+      id: POINT_LAYER_PIN, type: 'symbol', source: POINT_SRC,
+      filter: ['==', ['get', 'icon'], 'pin'],
+      layout: { 'icon-image': 'cm-pin-icon', 'icon-size': ['/', ['get', 'size'], 24], 'icon-anchor': 'bottom', 'icon-allow-overlap': true },
+      paint: { 'icon-color': ['get', 'color'] }
+    });
+  }
+}
+
+function refreshPointsSource() {
+  if (!map || !map.getSource(POINT_SRC)) return;
+  const items = OverlayEngine.itemsInOrder('point').filter(p => p.visible);
+  map.getSource(POINT_SRC).setData({
+    type: 'FeatureCollection',
+    features: items.map(p => ({ type: 'Feature', id: p.id, properties: p, geometry: { type: 'Point', coordinates: [p.lng, p.lat] } }))
+  });
+}
+
+function addPointOverlay(lng, lat) {
+  ensurePointLayers();
+  const id = 'pt_' + (overlayIdCounter++);
+  const item = { id, type: 'point', visible: true, label: `Point ${overlays.points.length + 1}`, lng, lat, size: 10, icon: 'dot', color: '#c8f060' };
+  overlays.points.push(item);
+  overlayOrder.unshift({ type: 'point', id });
+  refreshPointsSource();
+  OverlayEngine.applyZOrder();
+  OverlayEngine.renderList();
+}
+
+// =========================================================================
+// TEXT ENGINE — textes éditables, une seule source partagée
+// =========================================================================
+const TEXT_SRC = 'cm-texts-src';
+const TEXT_LAYER = 'cm-texts-layer';
+
+function ensureTextLayer() {
+  if (!map) return;
+  if (!map.getSource(TEXT_SRC)) map.addSource(TEXT_SRC, { type: 'geojson', data: emptyFC() });
+  if (!map.getLayer(TEXT_LAYER)) {
+    map.addLayer({
+      id: TEXT_LAYER, type: 'symbol', source: TEXT_SRC,
+      layout: {
+        'text-field': ['get', 'text'],
+        'text-size': ['get', 'fontSize'],
+        'text-anchor': ['get', 'anchor'],
+        'text-rotate': ['get', 'rotation'],
+        'text-allow-overlap': true,
+        'text-font': ['Open Sans Bold'],
+      },
+      paint: {
+        'text-color': ['get', 'color'],
+        'text-opacity': ['get', 'opacity'],
+        'text-halo-color': '#0a0a0b',
+        'text-halo-width': 1,
+      }
+    });
+  }
+}
+
+function refreshTextsSource() {
+  if (!map || !map.getSource(TEXT_SRC)) return;
+  const items = OverlayEngine.itemsInOrder('text').filter(t => t.visible);
+  map.getSource(TEXT_SRC).setData({
+    type: 'FeatureCollection',
+    features: items.map(t => ({ type: 'Feature', id: t.id, properties: t, geometry: { type: 'Point', coordinates: [t.lng, t.lat] } }))
+  });
+}
+
+function addTextOverlay(lng, lat) {
+  ensureTextLayer();
+  const id = 'tx_' + (overlayIdCounter++);
+  const item = {
+    id, type: 'text', visible: true, label: `Texte ${overlays.texts.length + 1}`,
+    lng, lat, text: 'Nouveau texte', fontSize: 20, color: '#ffffff', opacity: 1, anchor: 'center', rotation: 0
+  };
+  overlays.texts.push(item);
+  overlayOrder.unshift({ type: 'text', id });
+  refreshTextsSource();
+  OverlayEngine.applyZOrder();
+  OverlayEngine.renderList();
+  OverlayEngine.openEditor('text', id); // édition immédiate du texte saisi
+}
+
+// =========================================================================
+// IMAGE ENGINE — images géoréférencées via une 'image' source MapLibre
+// (rendu WebGL natif -> apparaît dans l'export vidéo, pas de DOM).
+// =========================================================================
+function metersPerDegLng(lat) { return 111320 * Math.cos(lat * Math.PI / 180); }
+const METERS_PER_DEG_LAT = 110540;
+
+function computeImageCorners(lng, lat, widthM, heightM, rotationDeg) {
+  const rad = rotationDeg * Math.PI / 180;
+  const hw = widthM / 2, hh = heightM / 2;
+  const corners = [[-hw, hh], [hw, hh], [hw, -hh], [-hw, -hh]]; // TL, TR, BR, BL
+  const mLng = metersPerDegLng(lat) || 1;
+  return corners.map(([x, y]) => {
+    const rx = x * Math.cos(rad) - y * Math.sin(rad);
+    const ry = x * Math.sin(rad) + y * Math.cos(rad);
+    return [lng + rx / mLng, lat + ry / METERS_PER_DEG_LAT];
+  });
+}
+
+function renderImageOverlay(item) {
+  if (!map) return;
+  const srcId = 'cm-img-src-' + item.id;
+  const layerId = 'cm-img-layer-' + item.id;
+  const coords = computeImageCorners(item.lng, item.lat, item.width * 1000, item.height * 1000, item.rotation);
+  if (!map.getSource(srcId)) {
+    map.addSource(srcId, { type: 'image', url: item.src, coordinates: coords });
+    map.addLayer({ id: layerId, type: 'raster', source: srcId,
+      paint: { 'raster-opacity': item.opacity },
+      layout: { visibility: item.visible ? 'visible' : 'none' } });
+  } else {
+    map.getSource(srcId).setCoordinates(coords);
+  }
+  if (map.getLayer(layerId)) {
+    map.setPaintProperty(layerId, 'raster-opacity', item.opacity);
+    map.setLayoutProperty(layerId, 'visibility', item.visible ? 'visible' : 'none');
+  }
+}
+
+function removeImageOverlay(id) {
+  if (!map) return;
+  const layerId = 'cm-img-layer-' + id, srcId = 'cm-img-src-' + id;
+  if (map.getLayer(layerId)) map.removeLayer(layerId);
+  if (map.getSource(srcId)) map.removeSource(srcId);
+}
+
+function addImageOverlay(lng, lat, dataURL) {
+  const img = new Image();
+  img.onload = () => {
+    const aspect = (img.naturalHeight / img.naturalWidth) || 1;
+    const defaultWidthKm = 300;
+    const id = 'im_' + (overlayIdCounter++);
+    const item = {
+      id, type: 'image', visible: true, label: `Image ${overlays.images.length + 1}`,
+      lng, lat, width: defaultWidthKm, height: Math.round(defaultWidthKm * aspect), rotation: 0, opacity: 1, src: dataURL
+    };
+    overlays.images.push(item);
+    overlayOrder.unshift({ type: 'image', id });
+    renderImageOverlay(item);
+    OverlayEngine.applyZOrder();
+    OverlayEngine.renderList();
+  };
+  img.src = dataURL;
+}
+
+// =========================================================================
+// OVERLAY ENGINE — moteur générique : un seul jeu de fonctions
+// (render/remove/list/édition) qui dispatche vers le moteur du bon type.
+// C'est ce module qui pilote le panel "Éléments" et le modal d'édition,
+// pour les 4 types sans dupliquer la logique 4 fois.
+// =========================================================================
+const TYPE_PLURAL = { country: 'countries', point: 'points', text: 'texts', image: 'images' };
+const TYPE_ICON = { country: '🌍', point: '📍', text: '🔤', image: '🖼' };
+
+const RENDER_FNS = {
+  country: renderCountryOverlay,
+  point: () => refreshPointsSource(),
+  text: () => refreshTextsSource(),
+  image: renderImageOverlay,
+};
+const REMOVE_FNS = {
+  country: removeCountryOverlay,
+  point: () => refreshPointsSource(),
+  text: () => refreshTextsSource(),
+  image: removeImageOverlay,
+};
+
+// Schéma de champs éditables par type -> génère le modal automatiquement
+const FIELD_SCHEMAS = {
+  country: [
+    { key: 'color', label: 'Couleur de remplissage', type: 'color' },
+    { key: 'opacity', label: 'Opacité', type: 'range', min: 0, max: 1, step: 0.05 },
+    { key: 'borderColor', label: 'Couleur de bordure', type: 'color' },
+    { key: 'borderWidth', label: 'Épaisseur de bordure', type: 'range', min: 0, max: 8, step: 0.5 },
+  ],
+  point: [
+    { key: 'icon', label: 'Forme', type: 'select', options: ['dot', 'circle', 'pin'], optLabels: { dot: 'Point', circle: 'Cercle', pin: 'Épingle' } },
+    { key: 'color', label: 'Couleur', type: 'color' },
+    { key: 'size', label: 'Taille', type: 'range', min: 4, max: 40, step: 1 },
+  ],
+  text: [
+    { key: 'text', label: 'Texte', type: 'text' },
+    { key: 'fontSize', label: 'Taille de police', type: 'range', min: 8, max: 96, step: 1 },
+    { key: 'color', label: 'Couleur', type: 'color' },
+    { key: 'opacity', label: 'Opacité', type: 'range', min: 0, max: 1, step: 0.05 },
+    { key: 'anchor', label: 'Ancrage', type: 'select', options: ['center', 'left', 'right', 'top', 'bottom'] },
+    { key: 'rotation', label: 'Rotation (°)', type: 'range', min: -180, max: 180, step: 1 },
+  ],
+  image: [
+    { key: 'width', label: 'Largeur (km)', type: 'number', step: 1 },
+    { key: 'height', label: 'Hauteur (km)', type: 'number', step: 1 },
+    { key: 'rotation', label: 'Rotation (°)', type: 'range', min: -180, max: 180, step: 1 },
+    { key: 'opacity', label: 'Opacité', type: 'range', min: 0, max: 1, step: 0.05 },
+  ],
+};
+
+function fieldRowHtml(type, id, field, item) {
+  const val = item[field.key];
+  const oninput = `OverlayEngine.updateField('${type}','${id}','${field.key}', this)`;
+  let input;
+  if (field.type === 'color') {
+    input = `<input type="color" value="${val}" oninput="${oninput}">`;
+  } else if (field.type === 'range') {
+    input = `<input type="range" min="${field.min}" max="${field.max}" step="${field.step}" value="${val}" oninput="${oninput}"><span class="range-val">${val}</span>`;
+  } else if (field.type === 'select') {
+    input = `<select onchange="${oninput}">` + field.options.map(o =>
+      `<option value="${o}" ${o === val ? 'selected' : ''}>${(field.optLabels && field.optLabels[o]) || o}</option>`
+    ).join('') + `</select>`;
+  } else if (field.type === 'number') {
+    input = `<input type="number" step="${field.step || 1}" value="${val}" oninput="${oninput}">`;
+  } else {
+    input = `<input type="text" value="${escapeHtml(String(val))}" oninput="${oninput}">`;
+  }
+  return `<div class="modal-field"><label>${field.label}</label>${input}</div>`;
+}
+
+const OverlayEngine = {
+  getArr(type) { return overlays[TYPE_PLURAL[type]]; },
+  find(type, id) { return this.getArr(type).find(o => o.id === id); },
+  itemsInOrder(type) {
+    return overlayOrder.filter(o => o.type === type).map(o => this.find(type, o.id)).filter(Boolean);
+  },
+
+  delete(type, id) {
+    const arr = this.getArr(type);
+    const idx = arr.findIndex(o => o.id === id);
+    if (idx === -1) return;
+    arr.splice(idx, 1);
+    overlayOrder = overlayOrder.filter(o => !(o.type === type && o.id === id));
+    if (type === 'country' || type === 'image') REMOVE_FNS[type](id);
+    else RENDER_FNS[type]();
+    this.renderList();
+  },
+
+  toggleVisible(type, id) {
+    const item = this.find(type, id);
+    if (!item) return;
+    item.visible = !item.visible;
+    RENDER_FNS[type](item);
+    this.renderList();
+  },
+
+  rename(type, id, value) {
+    const item = this.find(type, id);
+    if (item) item.label = value;
+  },
+
+  move(type, id, dir) {
+    const idx = overlayOrder.findIndex(o => o.type === type && o.id === id);
+    const newIdx = idx + dir;
+    if (idx === -1 || newIdx < 0 || newIdx >= overlayOrder.length) return;
+    [overlayOrder[idx], overlayOrder[newIdx]] = [overlayOrder[newIdx], overlayOrder[idx]];
+    this.applyZOrder();
+    this.renderList();
+  },
+
+  // Réapplique l'ordre d'empilement complet (utilisé après move / création /
+  // rebuild). Pour Pays/Image (1 layer/source par item) on déplace les
+  // vrais layers ; pour Point/Texte (1 layer partagé) on réordonne les
+  // données de la source -> l'ordre relatif entre items du même type
+  // est respecté sans dupliquer N layers.
+  applyZOrder() {
+    if (!map) return;
+    for (let i = overlayOrder.length - 1; i >= 0; i--) {
+      const ref = overlayOrder[i];
+      if (ref.type === 'country') {
+        const fillId = 'cm-country-fill-' + ref.id, lineId = 'cm-country-line-' + ref.id;
+        if (map.getLayer(fillId)) map.moveLayer(fillId);
+        if (map.getLayer(lineId)) map.moveLayer(lineId);
+      } else if (ref.type === 'image') {
+        const layerId = 'cm-img-layer-' + ref.id;
+        if (map.getLayer(layerId)) map.moveLayer(layerId);
+      } else if (ref.type === 'point') {
+        if (map.getLayer(POINT_LAYER_DOT)) map.moveLayer(POINT_LAYER_DOT);
+        if (map.getLayer(POINT_LAYER_PIN)) map.moveLayer(POINT_LAYER_PIN);
+      } else if (ref.type === 'text') {
+        if (map.getLayer(TEXT_LAYER)) map.moveLayer(TEXT_LAYER);
+      }
+    }
+    refreshPointsSource();
+    refreshTextsSource();
+  },
+
+  // Reconstruction complète après changement de style / projection / reload.
+  rebuildAll() {
+    if (!map) return;
+    ensurePointLayers();
+    ensureTextLayer();
+    overlays.countries.forEach(renderCountryOverlay);
+    overlays.images.forEach(renderImageOverlay);
+    refreshPointsSource();
+    refreshTextsSource();
+    this.applyZOrder();
+  },
+
+  clearAll() {
+    if (!confirm('Supprimer tous les éléments (pays, points, textes, images) ?')) return;
+    overlays.countries.forEach(c => removeCountryOverlay(c.id));
+    overlays.images.forEach(im => removeImageOverlay(im.id));
+    overlays = { countries: [], points: [], texts: [], images: [] };
+    overlayOrder = [];
+    refreshPointsSource();
+    refreshTextsSource();
+    this.renderList();
+  },
+
+  // ── Panel "Éléments" : une seule boucle générique pour les 4 types ──────
+  renderList() {
+    const list = document.getElementById('elements-list');
+    if (overlayOrder.length === 0) {
+      list.innerHTML = `<div class="kf-empty">Ajoutez un pays, un point,<br>un texte ou une image<br>avec les boutons ci-dessus</div>`;
+      return;
+    }
+    list.innerHTML = overlayOrder.map((ref, idx) => {
+      const item = this.find(ref.type, ref.id);
+      if (!item) return '';
+      return `
+      <div class="el-item ${item.visible ? '' : 'el-hidden'}">
+        <div class="el-icon">${TYPE_ICON[ref.type]}</div>
+        <input class="el-label" type="text" value="${escapeHtml(item.label)}"
+          oninput="OverlayEngine.rename('${ref.type}','${ref.id}', this.value)">
+        <div class="el-controls">
+          <button class="el-btn" title="Afficher/Masquer" onclick="OverlayEngine.toggleVisible('${ref.type}','${ref.id}')">${item.visible ? '👁' : '🚫'}</button>
+          <button class="el-btn" title="Monter" onclick="OverlayEngine.move('${ref.type}','${ref.id}',-1)" ${idx === 0 ? 'disabled' : ''}>▲</button>
+          <button class="el-btn" title="Descendre" onclick="OverlayEngine.move('${ref.type}','${ref.id}',1)" ${idx === overlayOrder.length - 1 ? 'disabled' : ''}>▼</button>
+          <button class="el-btn" title="Options" onclick="OverlayEngine.openEditor('${ref.type}','${ref.id}')">⚙</button>
+          <button class="el-btn el-btn-danger" title="Supprimer" onclick="OverlayEngine.delete('${ref.type}','${ref.id}')">✕</button>
+        </div>
+      </div>`;
+    }).join('');
+  },
+
+  // ── Modal d'édition générique, généré depuis FIELD_SCHEMAS ──────────────
+  openEditor(type, id) {
+    const item = this.find(type, id);
+    if (!item) return;
+    document.getElementById('modal-title').textContent = `${TYPE_ICON[type]} ${item.label}`;
+    document.getElementById('modal-fields').innerHTML =
+      FIELD_SCHEMAS[type].map(f => fieldRowHtml(type, id, f, item)).join('');
+    document.getElementById('editor-modal-overlay').classList.add('visible');
+  },
+  closeEditor() {
+    document.getElementById('editor-modal-overlay').classList.remove('visible');
+  },
+  updateField(type, id, key, el) {
+    const item = this.find(type, id);
+    if (!item) return;
+    let val = el.value;
+    if (el.type === 'range' || el.type === 'number') {
+      val = parseFloat(val);
+      const span = el.nextElementSibling;
+      if (span && span.classList.contains('range-val')) span.textContent = val;
+    }
+    item[key] = val;
+    RENDER_FNS[type](item);
+  },
+};
+
+// =========================================================================
+// TOOL ENGINE — modes d'ajout (+Pays / +Point / +Texte / +Image)
+// =========================================================================
+let selectedTool = null;
+let pendingImageDataURL = null;
+
+const ToolEngine = {
+  toggle(tool) {
+    selectedTool = (selectedTool === tool) ? null : tool;
+    pendingImageDataURL = null;
+    this._refreshUI();
+  },
+  deactivate() {
+    selectedTool = null;
+    pendingImageDataURL = null;
+    this._refreshUI();
+  },
+  startImage() {
+    document.getElementById('image-upload-input').click();
+  },
+  _refreshUI() {
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === selectedTool));
+    document.getElementById('country-search-row').style.display = selectedTool === 'country' ? 'flex' : 'none';
+    if (map) map.getCanvas().style.cursor = selectedTool ? 'crosshair' : '';
+    const hints = {
+      country: '🌍 Cliquez sur la carte ou recherchez un pays',
+      point: '📍 Cliquez sur la carte pour placer un point',
+      text: '🔤 Cliquez sur la carte pour placer un texte',
+    };
+    if (selectedTool && hints[selectedTool]) flashHint(hints[selectedTool]);
+    else if (!selectedTool) flashHint(map ? 'Naviguez → capturez des vues avec le bouton' : 'Entrez votre clé API Maptiler pour commencer');
+  },
+  handleMapClick(e) {
+    if (!selectedTool) return;
+    const { lng, lat } = e.lngLat;
+    if (selectedTool === 'point') addPointOverlay(lng, lat);
+    else if (selectedTool === 'text') addTextOverlay(lng, lat);
+    else if (selectedTool === 'country') detectAndAddCountry(lng, lat);
+    else if (selectedTool === 'image' && pendingImageDataURL) {
+      addImageOverlay(lng, lat, pendingImageDataURL);
+      ToolEngine.deactivate();
+    }
+  }
+};
+
+document.getElementById('image-upload-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    pendingImageDataURL = reader.result;
+    selectedTool = 'image';
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === 'image'));
+    if (map) map.getCanvas().style.cursor = 'crosshair';
+    flashHint('🖼 Cliquez sur la carte pour placer l\u2019image');
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('country-search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addCountryByName(e.target.value);
+    e.target.value = '';
+  }
+});
+
+// Datalist de recherche pays (rempli une fois, indépendant de la carte)
+document.getElementById('country-datalist').innerHTML =
+  COUNTRY_LIST.map(c => `<option value="${escapeHtml(c.name)}">`).join('');
+
+// ─── TABS (Keyframes / Éléments) ────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('tab-keyframes').style.display = tab === 'kf' ? 'flex' : 'none';
+  document.getElementById('tab-elements').style.display = tab === 'el' ? 'flex' : 'none';
+  document.getElementById('tabbtn-kf').classList.toggle('active', tab === 'kf');
+  document.getElementById('tabbtn-el').classList.toggle('active', tab === 'el');
+}
+
+// =========================================================================
+// MAP INIT — Camera/Globe/Style/Overlay engines assemblés ici
+// =========================================================================
+function initMap() {
+  const key = document.getElementById('api-key').value.trim();
+  if (!key) { alert('Entre ta clé API Maptiler'); return; }
+
+  currentApiKey = key;
+  if (map) { map.remove(); map = null; }
+
+  ToolEngine.deactivate();
+  flashHint('Chargement de la carte...');
+
+  map = new maplibregl.Map({
+    container: 'map',
+    style: getMapStyle(currentStyleKey, key),
+    center: [0, 25],   // vue monde par défaut
+    zoom: 1.7,
+    pitch: 0,
+    bearing: 0,
+  });
+
+  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+  map.addControl(new maplibregl.ScaleControl(), 'bottom-right');
+  map.on('click', (e) => ToolEngine.handleMapClick(e));
+
+  map.on('load', () => {
+    GlobeEngine.apply(); // projection globe par défaut (ou flat si déjà choisi)
+    document.getElementById('status-dot').classList.add('ok');
+    document.getElementById('status-text').textContent = 'Prêt';
+    flashHint('Naviguez → capturez des vues avec le bouton');
+    document.getElementById('btn-capture').disabled = false;
+    OverlayEngine.rebuildAll(); // au cas où des éléments existaient déjà (re-init)
+  });
+
+  map.on('error', () => {
+    document.getElementById('status-text').textContent = 'Erreur de chargement';
+    flashHint('⚠ Clé ou style invalide — vérifiez votre compte MapTiler');
+  });
+}
+
+// ─── KEYFRAMES (Camera Engine) ──────────────────────────────────────────────
+function captureKeyframe() {
+  if (!map || keyframes.length >= 10) return;
+  const c = map.getCenter();
+  const kf = {
+    id: Date.now(),
+    lng: c.lng,
+    lat: c.lat,
+    zoom: map.getZoom(),
+    bearing: map.getBearing(),
+    pitch: map.getPitch(),
+  };
+  keyframes.push(kf);
+  renderKFList();
+  updateButtons();
+
+  const btn = document.getElementById('btn-capture');
+  btn.textContent = '✓ Capturé !';
+  btn.style.background = '#111a00';
+  setTimeout(() => {
+    btn.textContent = '+ Capturer la vue actuelle';
+    btn.style.background = '';
+  }, 800);
+}
+
+function deleteKeyframe(id) {
+  keyframes = keyframes.filter(k => k.id !== id);
+  renderKFList();
+  updateButtons();
+}
+
+function jumpToKeyframe(kf) {
+  if (!map) return;
+  map.flyTo({
+    center: [kf.lng, kf.lat],
+    zoom: kf.zoom,
+    bearing: kf.bearing,
+    pitch: kf.pitch,
+    duration: 800,
+    essential: true
+  });
+}
+
+function renderKFList() {
+  const list = document.getElementById('kf-list');
+  document.getElementById('kf-count').textContent = `${keyframes.length} / 10`;
+
+  if (keyframes.length === 0) {
+    list.innerHTML = `<div class="kf-empty">Naviguez sur la carte<br>et capturez des vues</div>`;
+    return;
+  }
+
+  list.innerHTML = keyframes.map((kf, i) => `
+    <div class="kf-item" onclick="jumpToKeyframe(keyframes[${i}])">
+      <div class="kf-num">KF ${String(i+1).padStart(2,'0')}</div>
+      <div class="kf-coords">${kf.lat.toFixed(3)}°, ${kf.lng.toFixed(3)}°</div>
+      <div class="kf-meta">zoom ${kf.zoom.toFixed(1)} · pitch ${kf.pitch.toFixed(0)}° · bear ${kf.bearing.toFixed(0)}°</div>
+      <button class="kf-delete" onclick="event.stopPropagation();deleteKeyframe(${kf.id})">✕</button>
+    </div>
+  `).join('');
+}
+
+function updateButtons() {
+  const has2 = keyframes.length >= 2;
+  document.getElementById('btn-preview').disabled = !has2;
+  document.getElementById('btn-export').disabled = !has2;
+  if (keyframes.length >= 10) {
+    document.getElementById('btn-capture').disabled = true;
+    document.getElementById('btn-capture').textContent = 'Max 10 keyframes';
+  } else if (map) {
+    document.getElementById('btn-capture').disabled = false;
+    document.getElementById('btn-capture').textContent = '+ Capturer la vue actuelle';
+  }
+}
+
+function clearAll() {
+  if (!confirm('Effacer tous les keyframes ?')) return;
+  keyframes = [];
+  renderKFList();
+  updateButtons();
+}
+
+// ─── PREVIEW ───────────────────────────────────────────────────────────────
+async function previewAnimation() {
+  if (!map || keyframes.length < 2) return;
+  const duration = parseFloat(document.getElementById('kf-duration').value) * 1000;
+  const totalDuration = duration * (keyframes.length - 1);
+
+  document.getElementById('playback-bar').style.display = 'block';
+  document.getElementById('btn-preview').disabled = true;
+  document.getElementById('btn-export').disabled = true;
+  flashHint('Aperçu en cours...');
+
+  const start = performance.now();
+
+  function frame(now) {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / totalDuration, 1);
+
+    document.getElementById('playback-fill').style.width = (progress * 100) + '%';
+
+    const segCount = keyframes.length - 1;
+    const segProgress = progress * segCount;
+    const segIndex = Math.min(Math.floor(segProgress), segCount - 1);
+    const t = segProgress - segIndex;
+
+    const state = interpolateKF(keyframes[segIndex], keyframes[Math.min(segIndex+1, keyframes.length-1)], t);
+    map.jumpTo({ center: [state.lng, state.lat], zoom: state.zoom, bearing: state.bearing, pitch: state.pitch });
+
+    if (progress < 1) {
+      requestAnimationFrame(frame);
+    } else {
+      document.getElementById('playback-bar').style.display = 'none';
+      document.getElementById('playback-fill').style.width = '0%';
+      document.getElementById('btn-preview').disabled = false;
+      document.getElementById('btn-export').disabled = false;
+      flashHint('Naviguez → capturez des vues avec le bouton');
+    }
+  }
+
+  requestAnimationFrame(frame);
+}
+
+// =========================================================================
+// EXPORT ENGINE — capture vidéo via canvas.captureStream()
+// Tous les overlays (pays/points/textes/images) sont des layers/sources
+// MapLibre natifs (WebGL) -> ils sont déjà dans le canvas capturé,
+// aucune adaptation nécessaire ici par rapport à la version d'origine.
+// =========================================================================
+async function startExport() {
+  if (!map || keyframes.length < 2) return;
+
+  // Sécurité : on ferme tout outil/modal en cours avant un export long
+  ToolEngine.deactivate();
+  OverlayEngine.closeEditor();
+
+  const fps = parseInt(document.getElementById('fps-select').value);
+  const duration = parseFloat(document.getElementById('kf-duration').value);
+  const resStr = document.getElementById('res-select').value;
+  const [W, H] = resStr.split('x').map(Number);
+  const totalFrames = Math.round(fps * duration * (keyframes.length - 1));
+
+  cancelRequested = false;
+  recordedChunks = [];
+
+  const overlay = document.getElementById('progress-overlay');
+  overlay.classList.add('visible');
+  document.getElementById('progress-info').textContent = `Redimensionnement vers ${W}×${H}...`;
+  document.getElementById('progress-fill').style.width = '0%';
+
+  const mapContainer = document.getElementById('map');
+  const viewportW = mapContainer.offsetWidth;
+  const zoomOffset = Math.log2(W / viewportW);
+
+  const origStyle = {
+    width: mapContainer.style.width,
+    height: mapContainer.style.height,
+    position: mapContainer.style.position,
+  };
+
+  mapContainer.style.width = W + 'px';
+  mapContainer.style.height = H + 'px';
+  map.resize();
+
+  await new Promise(r => {
+    if (map.areTilesLoaded()) { setTimeout(r, 200); return; }
+    map.once('idle', () => setTimeout(r, 200));
+  });
+
+  document.getElementById('progress-info').textContent = 'Initialisation enregistreur...';
+
+  const canvas = map.getCanvas();
+  console.log(`Canvas résolution : ${canvas.width}×${canvas.height}`);
+
+  let mimeType = 'video/webm;codecs=vp9';
+  if (MediaRecorder.isTypeSupported('video/mp4;codecs=avc1')) {
+    mimeType = 'video/mp4;codecs=avc1';
+  } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+    mimeType = 'video/webm;codecs=vp9';
+  } else {
+    mimeType = 'video/webm';
+  }
+
+  const stream = canvas.captureStream(fps);
+  mediaRecorder = new MediaRecorder(stream, {
+    mimeType,
+    videoBitsPerSecond: W >= 3840 ? 80_000_000 : W >= 2560 ? 40_000_000 : W >= 1920 ? 20_000_000 : 10_000_000
+  });
+
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data.size > 0) recordedChunks.push(e.data);
+  };
+
+  mediaRecorder.onstop = () => {
+    mapContainer.style.width = origStyle.width;
+    mapContainer.style.height = origStyle.height;
+    map.resize();
+
+    if (cancelRequested) {
+      overlay.classList.remove('visible');
+      return;
+    }
+
+    const blob = new Blob(recordedChunks, { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cinemap_${W}x${H}_${fps}fps_${Date.now()}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    overlay.classList.remove('visible');
+    flashHint(`Export ${W}×${H} terminé ✓`);
+  };
+
+  mediaRecorder.start(100);
+
+  const segCount = keyframes.length - 1;
+  const frameDuration = 1000 / fps;
+
+  for (let f = 0; f <= totalFrames; f++) {
+    if (cancelRequested) break;
+
+    const progress = f / totalFrames;
+    const segProgress = progress * segCount;
+    const segIndex = Math.min(Math.floor(segProgress), segCount - 1);
+    const t = segProgress - segIndex;
+
+    const state = interpolateKF(
+      keyframes[segIndex],
+      keyframes[Math.min(segIndex + 1, keyframes.length - 1)],
+      t
+    );
+
+    map.jumpTo({
+      center: [state.lng, state.lat],
+      zoom: state.zoom + zoomOffset,
+      bearing: state.bearing,
+      pitch: state.pitch,
+    });
+
+    await new Promise(r => {
+      map.once('render', () => setTimeout(r, frameDuration));
+      map.triggerRepaint();
+    });
+
+    const pct = Math.round((f / totalFrames) * 100);
+    document.getElementById('progress-fill').style.width = pct + '%';
+    document.getElementById('progress-info').textContent =
+      `${W}×${H} · Frame ${f} / ${totalFrames} — ${pct}% — ${(f / fps).toFixed(1)}s`;
+
+    if (f % 10 === 0) await new Promise(r => setTimeout(r, 0));
+  }
+
+  mediaRecorder.stop();
+}
+
+function cancelExport() {
+  cancelRequested = true;
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  document.getElementById('progress-overlay').classList.remove('visible');
+}
+
+// ─── RECHERCHE / GÉOCODAGE (lieux) ──────────────────────────────────────────
+function showSearchBox(html) {
+  const box = document.getElementById('search-results');
+  box.innerHTML = html;
+  box.classList.add('visible');
+}
+
+function hideSearchResults() {
+  lastSearchResults = [];
+  const box = document.getElementById('search-results');
+  box.classList.remove('visible');
+  box.innerHTML = '';
+}
+
+async function doSearch() {
+  const query = document.getElementById('search-input').value.trim();
+  if (!query) { hideSearchResults(); return; }
+
+  if (!currentApiKey) {
+    showSearchBox(`<div class="search-empty">⚠ Entrez d'abord votre clé API Maptiler</div>`);
+    return;
+  }
+
+  showSearchBox(`<div class="search-loading">Recherche en cours...</div>`);
+
+  try {
+    const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?key=${currentApiKey}&language=fr&limit=6`;
+    const res = await fetch(url);
+    const data = await res.json();
+    lastSearchResults = data.features || [];
+    renderSearchResults();
+  } catch (err) {
+    console.error('Erreur de recherche', err);
+    showSearchBox(`<div class="search-empty">⚠ Erreur lors de la recherche</div>`);
+  }
+}
+
+function renderSearchResults() {
+  if (lastSearchResults.length === 0) {
+    showSearchBox(`<div class="search-empty">Aucun résultat trouvé</div>`);
+    return;
+  }
+  const html = lastSearchResults.map((f, i) => {
+    const name = f.text || f.place_name || 'Lieu';
+    const context = f.place_name && f.place_name !== name ? f.place_name : (f.place_type || []).join(', ');
+    return `
+      <div class="search-result-item" onclick="goToSearchResult(${i})">
+        <div class="search-result-name">${escapeHtml(name)}</div>
+        <div class="search-result-context">${escapeHtml(context)}</div>
+      </div>`;
+  }).join('');
+  showSearchBox(html);
+}
+
+function bboxToZoom(bbox) {
+  if (!bbox) return 12;
+  const [minLng, minLat, maxLng, maxLat] = bbox;
+  const lngDiff = Math.max(Math.abs(maxLng - minLng), 0.0005);
+  const latDiff = Math.max(Math.abs(maxLat - minLat), 0.0005);
+  const maxDiff = Math.max(lngDiff, latDiff);
+  const zoom = Math.log2(360 / maxDiff) - 1.2;
+  return Math.max(2, Math.min(17, zoom));
+}
+
+function goToSearchResult(index) {
+  const feature = lastSearchResults[index];
+  if (!map || !feature || !feature.center) return;
+
+  const [lng, lat] = feature.center;
+  const zoom = bboxToZoom(feature.bbox);
+
+  map.flyTo({
+    center: [lng, lat],
+    zoom,
+    duration: 1600,
+    essential: true
+  });
+
+  document.getElementById('search-input').value = feature.place_name || feature.text || '';
+  flashHint(`→ ${feature.place_name || feature.text}`);
+  hideSearchResults();
+}
+
+document.getElementById('search-input').addEventListener('input', () => {
+  clearTimeout(searchDebounceTimer);
+  const q = document.getElementById('search-input').value.trim();
+  if (q.length < 2) { hideSearchResults(); return; }
+  searchDebounceTimer = setTimeout(doSearch, 400);
+});
+
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    clearTimeout(searchDebounceTimer);
+    if (lastSearchResults.length > 0) {
+      goToSearchResult(0);
+    } else {
+      doSearch();
+    }
+  } else if (e.key === 'Escape') {
+    hideSearchResults();
+  }
+});
+
+document.addEventListener('click', e => {
+  const box = document.getElementById('map-search');
+  if (box && !box.contains(e.target)) hideSearchResults();
+});
+
+// ─── INIT ──────────────────────────────────────────────────────────────────
+document.getElementById('api-key').addEventListener('keydown', e => {
+  if (e.key === 'Enter') initMap();
+});
+
+renderKFList();
+OverlayEngine.renderList();
+</script>
+</body>
+</html>
