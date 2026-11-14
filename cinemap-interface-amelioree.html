@@ -1,0 +1,2958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CineMap — Cartographic Motion Design</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%8C%8D%3C/text%3E%3C/svg%3E">
+<script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap');
+
+  /* ───────── TOKENS — une seule source de vérité ─────────
+     Référence visuelle : la barre de dessin (fond sombre, bord 1px,
+     boutons mono 11px, accent lime). Tout le reste s'aligne dessus.   */
+  :root {
+    --bg: #0a0a0b;
+    --surface: #111114;
+    --raised: #16161b;
+    --border: #1e1e24;
+    --border-hi: #34343e;
+    --accent: #c8f060;
+    --accent-hi: #d8ff70;
+    --accent-dim: #111a00;
+    --accent2: #60c8f0;
+    --text: #e8e8ec;
+    --muted: #72727e;
+    --danger: #f06060;
+    --danger-dim: #1a0000;
+
+    /* tailles de texte : 10 / 11 / 12 / 18 / 28 — rien d'autre */
+    --fs-xs: 10px;
+    --fs-sm: 11px;
+    --fs-md: 12px;
+    --fs-lg: 18px;
+    --fs-xl: 28px;
+
+    /* hauteurs de contrôles : 30 (formulaires, boutons) / 26 (compact) */
+    --h: 30px;
+    --h-sm: 26px;
+
+    /* rayons : 4 contrôles / 6 panneaux / 10 fenêtres */
+    --r-sm: 4px;
+    --r-md: 6px;
+    --r-lg: 10px;
+
+    --pad: 16px;
+    --gap: 8px;
+    --inset: 12px;          /* marge des overlays sur la carte */
+    --header-h: 48px;
+    --side-w: 340px;
+    --modal-w: 360px;       /* TOUTES les fenêtres font cette largeur */
+    --ease: 0.15s;
+    --mono: 'DM Mono', ui-monospace, monospace;
+    --serif: 'Instrument Serif', serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; scrollbar-width: thin; scrollbar-color: var(--border-hi) transparent; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: var(--fs-sm);
+    height: 100vh; height: 100dvh;
+    display: grid;
+    grid-template-columns: var(--side-w) minmax(0, 1fr);
+    grid-template-rows: var(--header-h) minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input:focus-visible, select:focus-visible { outline: none; }
+
+  /* ───────── MAP WRAPPER (16:9) ───────── */
+  .workspace { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); background: #050506; }
+  .map-controls { display: flex; align-items: center; gap: 18px; min-height: 68px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .map-controls-title { color: var(--accent); font-size: var(--fs-xs); letter-spacing: 1.5px; font-weight: 500; flex: none; }
+  .map-controls-fields { display: flex; align-items: center; gap: 12px; min-width: 0; width: 100%; }
+  .map-control-field { width: 150px; flex: none; }
+  .map-control-field .field-label { margin-bottom: 4px; }
+  .map-check { white-space: nowrap; flex: none; }
+  .map-terrain-slider { width: min(150px, 14vw) !important; flex: none; }
+  .map-wrapper { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #000; min-width: 0; min-height: 0; }
+  .map-16-9 {
+    position: relative; aspect-ratio: 16 / 9; width: 100%; max-height: 100%;
+    max-width: calc((100vh - var(--header-h)) * 16 / 9);
+    overflow: hidden;
+  }
+  #map { width: 100%; height: 100%; position: absolute; inset: 0; }
+
+  /* ───────── HEADER ───────── */
+  header {
+    grid-column: 1 / -1; background: var(--surface); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 var(--pad); gap: var(--pad);
+  }
+  .logo { font-family: var(--serif); font-style: italic; font-size: var(--fs-lg); color: var(--accent); letter-spacing: -0.5px; flex-shrink: 0; white-space: nowrap; }
+  .logo span { color: var(--muted); font-size: var(--fs-xs); font-style: normal; font-family: var(--mono); letter-spacing: 0; margin-left: var(--gap); }
+  .header-key { display: flex; gap: var(--gap); align-items: center; width: min(330px, 36vw); flex-shrink: 1; }
+  .header-actions { margin-left: auto; display: flex; gap: var(--gap); align-items: center; }
+  .status-text { font-size: var(--fs-xs); color: var(--muted); }
+
+  /* ───────── SIDEBAR ───────── */
+  aside { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
+  .section { padding: 14px var(--pad); border-bottom: 1px solid var(--border); }
+  .section-flush { border-bottom: none; padding-bottom: 6px; }
+  .section-label, .field-label, .modal-field label {
+    font-size: var(--fs-xs); letter-spacing: 1px; text-transform: uppercase; color: var(--muted);
+  }
+  .section-label { margin-bottom: 10px; }
+  .section-label-tight { margin-bottom: 6px; }
+  .field-label { margin-bottom: 4px; }
+  .kf-count { float: right; color: var(--accent2); }
+  .panel-foot { padding: 0 var(--pad) 12px; }
+
+  /* ───────── CONTRÔLES : même hauteur, même rayon, même police ───────── */
+  input[type="text"], input[type="number"], select,
+  .btn, .tool-btn, .btn-search, .draw-btn {
+    height: var(--h);
+    font-family: var(--mono);
+    font-size: var(--fs-sm);
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+    outline: none;
+    transition: border-color var(--ease), background var(--ease), color var(--ease);
+  }
+  input[type="text"], input[type="number"], select { background: var(--bg); color: var(--text); padding: 0 10px; width: 100%; }
+  input:focus, select:focus { border-color: var(--accent); }
+  input::placeholder { color: var(--muted); }
+
+  select {
+    appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 26px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5 5 6.5 8 3.5' fill='none' stroke='%2372727e' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center; background-size: 10px;
+  }
+  select:hover { border-color: var(--border-hi); }
+
+  /* boutons */
+  .btn, .tool-btn, .btn-search, .draw-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 0 12px; cursor: pointer; white-space: nowrap; letter-spacing: 0.3px;
+    background: transparent; color: var(--muted);
+  }
+  .btn:hover, .tool-btn:hover, .draw-btn:hover { color: var(--text); border-color: var(--border-hi); }
+  .btn-ghost { background: transparent; color: var(--muted); }
+  .btn-primary, .btn-search, .draw-ok, .tool-btn.active {
+    background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 500;
+  }
+  .btn-primary:hover, .btn-search:hover, .draw-ok:hover, .tool-btn.active:hover { background: var(--accent-hi); border-color: var(--accent-hi); color: var(--bg); }
+  .btn-accent2 { background: transparent; color: var(--accent2); border-color: var(--accent2); }
+  .btn-accent2:hover { background: #001a22; color: var(--accent2); border-color: var(--accent2); }
+  .btn-danger { color: var(--danger); border-color: var(--danger); }
+  .btn-quiet-danger { color: var(--danger); border-color: transparent; font-size: var(--fs-xs); height: var(--h-sm); }
+  .btn-quiet-danger:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-dim); }
+  .btn:disabled, .btn-search:disabled { background: transparent; color: var(--muted); border-color: var(--border); cursor: not-allowed; opacity: 0.45; }
+  .btn-full { width: 100%; }
+  .btn-icon { width: var(--h); padding: 0; flex: none; }
+  .btn-search { width: var(--h); padding: 0; flex: none; }
+  .grow { flex: 1; } .grow-2 { flex: 2; }
+  .draw-btn { height: var(--h-sm); padding: 0 10px; font-size: var(--fs-xs); }
+
+  /* ───────── CASE À COCHER (refaite) ───────── */
+  input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none; flex: none; margin: 0;
+    width: 16px; height: 16px; border-radius: var(--r-sm);
+    background: var(--bg); border: 1px solid var(--border-hi);
+    display: inline-grid; place-content: center; cursor: pointer;
+    transition: background var(--ease), border-color var(--ease);
+  }
+  input[type="checkbox"]::after {
+    content: ""; width: 10px; height: 10px; transform: scale(0); transition: transform 0.12s ease-out;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.4 6.5 5 9 9.6 3.4' fill='none' stroke='%230a0a0b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+  input[type="checkbox"]:hover { border-color: var(--muted); }
+  input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+  input[type="checkbox"]:checked::after { transform: scale(1); }
+  .chk { display: inline-flex; align-items: center; gap: var(--gap); font-size: var(--fs-sm); color: var(--text); cursor: pointer; user-select: none; }
+  .check-row { display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+
+  /* ───────── SLIDERS ───────── */
+  input[type="range"] { appearance: none; -webkit-appearance: none; background: transparent; height: 16px; cursor: pointer; width: 100%; }
+  input[type="range"]::-webkit-slider-runnable-track { height: 3px; background: var(--border-hi); border-radius: 2px; }
+  input[type="range"]::-moz-range-track { height: 3px; background: var(--border-hi); border-radius: 2px; }
+  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -4.5px; border-radius: 50%; background: var(--accent); border: none; }
+  input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); border: none; }
+  .terrain-row { display: flex; align-items: center; gap: var(--gap); margin-top: 10px; }
+  .terrain-row input[type="range"] { flex: 1; min-width: 0; }
+  .terrain-val, .range-val { font-size: var(--fs-xs); min-width: 28px; text-align: right; }
+  .terrain-val { color: var(--muted); }
+  .range-val { color: var(--accent2); }
+
+  /* ───────── CARTE : style + options ───────── */
+  .map-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+
+  /* ───────── ONGLETS ───────── */
+  .tab-bar { display: flex; gap: 8px; padding: 12px 12px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .tab-btn {
+    flex: 1; min-height: 54px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border-hi); border-radius: var(--r-md);
+    color: var(--muted); font-family: var(--mono); font-size: 13px; font-weight: 500; letter-spacing: 1px; text-transform: uppercase;
+    cursor: pointer; transition: color var(--ease), border-color var(--ease), background var(--ease), box-shadow var(--ease);
+  }
+  .tab-btn:hover { color: var(--text); border-color: var(--muted); }
+  .tab-btn.active { color: var(--accent); background: var(--accent-dim); border: 1px solid var(--accent); box-shadow: inset 0 0 0 1px rgba(200,240,96,.12); }
+  .tab-panel { display: flex; flex-direction: column; flex: 1; overflow: hidden; min-height: 200px; }
+
+  /* ───────── OUTILS (grille 3 colonnes, tous identiques) ───────── */
+  .tool-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap); margin-top: var(--gap); }
+  .tool-row > :last-child:nth-child(3n + 1) { grid-column: 1 / -1; }
+  .tool-btn { padding: 0 6px; min-width: 0; }
+  .country-search-row { margin-top: var(--gap); }
+
+  /* ───────── LISTES (keyframes + éléments) ───────── */
+  .kf-list { flex: 1; overflow-y: auto; padding: 10px var(--pad); display: flex; flex-direction: column; gap: var(--gap); }
+  .kf-empty { text-align: center; color: var(--muted); font-size: var(--fs-sm); padding: 24px 0; line-height: 1.8; }
+  .kf-total { text-align: right; font-size: var(--fs-xs); color: var(--muted); padding: 2px 4px; }
+  .kf-total b { color: var(--accent); }
+
+  .kf-item, .el-item { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); transition: border-color var(--ease), background var(--ease), opacity var(--ease); }
+  .kf-item { padding: 10px 12px; cursor: pointer; position: relative; }
+  .kf-item:hover { border-color: var(--border-hi); }
+  .kf-item.active { border-color: var(--accent); background: var(--accent-dim); }
+  .kf-num { font-size: var(--fs-xs); color: var(--muted); letter-spacing: 1px; }
+  .kf-coords { font-size: var(--fs-sm); color: var(--text); margin-top: 3px; }
+  .kf-meta { font-size: var(--fs-xs); color: var(--accent2); margin-top: 2px; }
+
+  .kf-gap { display: flex; align-items: center; gap: var(--gap); padding: 2px 4px; font-size: var(--fs-sm); color: var(--muted); }
+  .kf-gap-line { flex: 1; height: 1px; background: currentColor; opacity: .25; }
+  .kf-gap input { width: 60px; flex: none; height: var(--h-sm); padding: 0 6px; text-align: center; color: var(--accent2); border-color: #2a3a42; -moz-appearance: textfield; appearance: textfield; }
+  .kf-gap input::-webkit-outer-spin-button, .kf-gap input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .kf-gap select { flex: none; width: 112px; height: var(--h-sm); padding-left: 6px; color: var(--accent2); border-color: #2a3a42; }
+  .kf-gap input:focus, .kf-gap select:focus { border-color: var(--accent2); }
+  .kf-gap-unit { color: var(--accent2); }
+
+  /* boutons-icônes compacts (liste d'éléments + suppression keyframe) */
+  .el-btn, .kf-delete {
+    width: var(--h-sm); height: var(--h-sm); display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: none; border-radius: var(--r-sm); color: var(--muted); cursor: pointer;
+    font-size: var(--fs-md); line-height: 1; padding: 0; transition: color var(--ease), background var(--ease);
+  }
+  .el-btn:hover { color: var(--text); background: var(--raised); }
+  .el-btn:disabled { opacity: 0.25; cursor: default; }
+  .el-btn:disabled:hover { background: none; color: var(--muted); }
+  .el-btn-danger:hover, .kf-delete:hover { color: var(--danger); background: var(--danger-dim); }
+  .kf-delete { position: absolute; top: 6px; right: 6px; }
+
+  /* élément : ligne 1 = icône + nom, ligne 2 = couleurs + actions */
+  .el-item { padding: 8px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--gap); }
+  .el-item.el-hidden { opacity: 0.4; }
+  .el-icon { font-size: var(--fs-lg); width: 22px; text-align: center; flex-shrink: 0; line-height: 1; }
+  .el-label {
+    flex: 1; min-width: 0; height: var(--h-sm); background: transparent; border: none; border-bottom: 1px solid transparent; border-radius: 0;
+    color: var(--text); font-family: var(--mono); font-size: var(--fs-md); padding: 0 2px; outline: none;
+  }
+  .el-label:focus { border-bottom-color: var(--accent); }
+  .el-controls { flex: 1 0 100%; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+  .el-color-swatch {
+    appearance: none; -webkit-appearance: none; width: var(--h-sm); height: var(--h-sm); padding: 0; flex: none;
+    border: 1px solid var(--border-hi); border-radius: var(--r-sm); background: none; cursor: pointer;
+  }
+  .el-color-swatch-border { margin-right: auto; margin-left: 4px; }
+  .el-color-swatch::-webkit-color-swatch-wrapper { padding: 2px; }
+  .el-color-swatch::-webkit-color-swatch { border: none; border-radius: 2px; }
+  .el-color-swatch::-moz-color-swatch { border: none; border-radius: 2px; }
+  .el-color-swatch:hover { border-color: var(--muted); }
+
+  /* ───────── EXPORT ───────── */
+  .bottom-panel { padding: 12px var(--pad); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: var(--gap); flex-shrink: 0; }
+  .bottom-panel .section-label { margin-bottom: 0; }
+  .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+  .export-actions { display: flex; gap: var(--gap); }
+
+  /* ───────── OVERLAYS SUR LA CARTE ───────── */
+  .map-hint {
+    position: absolute; bottom: var(--inset); left: 50%; transform: translateX(-50%); z-index: 10;
+    background: rgba(10,10,11,0.88); border: 1px solid var(--border); backdrop-filter: blur(8px);
+    padding: 6px 12px; border-radius: var(--r-md); font-size: var(--fs-sm); color: var(--muted);
+    pointer-events: none; white-space: nowrap; max-width: 80%; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.3s;
+  }
+  .map-search { position: absolute; top: var(--inset); left: var(--inset); z-index: 12; width: 280px; max-width: calc(100% - 2 * var(--inset)); }
+  .map-search-row { display: flex; gap: var(--gap); }
+  .map-search input[type="text"] { background: rgba(10,10,11,0.88); backdrop-filter: blur(8px); }
+  .search-results, #country-dd {
+    background: rgba(22,22,27,0.97); backdrop-filter: blur(8px); border: 1px solid var(--border-hi);
+    border-radius: var(--r-md); box-shadow: 0 10px 30px rgba(0,0,0,.6); overflow-y: auto;
+  }
+  .search-results { margin-top: var(--gap); max-height: 260px; display: none; }
+  .search-results.visible { display: block; }
+  .search-result-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background var(--ease); }
+  .search-result-item:last-child { border-bottom: none; }
+  .search-result-item:hover, .cdd-item.active, .cdd-item:hover { background: #22222b; }
+  .search-result-name { font-size: var(--fs-sm); color: var(--text); }
+  .search-result-context { font-size: var(--fs-xs); color: var(--muted); margin-top: 2px; }
+  .search-empty, .search-loading, .cdd-empty { padding: 10px 12px; font-size: var(--fs-xs); color: var(--muted); }
+
+  #country-dd { display: none; position: fixed; z-index: 100000; border-color: var(--accent); }
+  #country-dd.visible { display: block; }
+  .cdd-item { display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; font-size: var(--fs-sm); cursor: pointer; color: var(--text); }
+  .cdd-item em { font-style: normal; font-size: var(--fs-xs); color: var(--muted); letter-spacing: 1px; }
+  .cdd-item.done { color: var(--muted); }
+  .cdd-item.done em { color: var(--accent); }
+
+  /* barre de dessin — la référence */
+  .draw-bar {
+    position: absolute; top: var(--inset); left: 50%; transform: translateX(-50%); z-index: 12; display: none; align-items: center; gap: 10px;
+    background: rgba(10,10,11,0.9); border: 1px solid var(--border); border-radius: var(--r-md); padding: 6px 10px;
+    font-size: var(--fs-xs); color: var(--text); backdrop-filter: blur(6px); white-space: nowrap;
+  }
+  .draw-bar.visible { display: flex; }
+  .draw-bar .chk { font-size: var(--fs-xs); }
+
+  /* guides (non exportés) */
+  .guide { position: absolute; pointer-events: none; z-index: 6; mix-blend-mode: difference; }
+  .guide-cross { left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); opacity: .9;
+    background:
+      linear-gradient(#fff,#fff) left center / 17px 1px no-repeat,
+      linear-gradient(#fff,#fff) right center / 17px 1px no-repeat,
+      linear-gradient(#fff,#fff) center top / 1px 17px no-repeat,
+      linear-gradient(#fff,#fff) center bottom / 1px 17px no-repeat; }
+  .guide-safe { border: 1px dashed rgba(255,255,255,.75); }
+  .guide-action { inset: 3.5%; }
+  .guide-title { inset: 5%; border-style: solid; border-color: rgba(255,255,255,.45); }
+  .guide-safe span { position: absolute; top: 3px; left: 6px; font-size: var(--fs-xs); letter-spacing: 1px; color: #fff; opacity: .8; }
+
+  #playback-bar { display: none; position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: var(--border); z-index: 5; }
+  #playback-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.05s linear; }
+
+  .maplibregl-ctrl-group { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: var(--r-md) !important; }
+  .maplibregl-ctrl-group button { background: transparent !important; }
+  .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1); }
+  .maplibregl-ctrl-attrib { display: none !important; }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl { margin: var(--inset) var(--inset) 0 0; }
+
+  /* ───────── FENÊTRES (modales) : même largeur partout ───────── */
+  #group-modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(10,10,11,0.7); backdrop-filter: blur(6px);
+    z-index: 1500; align-items: center; justify-content: center;
+  }
+  #group-modal-overlay.visible { display: flex; }
+  #editor-modal-overlay {
+    display: none; position: fixed; inset: 0; z-index: 1600; pointer-events: none;
+  }
+  #editor-modal-overlay.visible { display: block; }
+  .modal-box {
+    background: var(--surface); border: 1px solid var(--border-hi); border-radius: var(--r-lg); padding: 16px;
+    width: min(var(--modal-w), calc(100vw - 2 * var(--pad))); max-height: 78vh; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 14px; box-shadow: 0 14px 42px rgba(0,0,0,.55);
+  }
+  #editor-modal-overlay .modal-box { position: fixed; top: 110px; right: 28px; pointer-events: auto; }
+  .modal-box-title { font-family: var(--serif); font-style: italic; font-size: var(--fs-lg); color: var(--accent); word-break: break-word; }
+  #editor-modal-overlay .modal-box-title { cursor: grab; user-select: none; touch-action: none; padding: 2px 0 10px; border-bottom: 1px solid var(--border); }
+  #editor-modal-overlay .modal-box-title:active { cursor: grabbing; }
+  .modal-field { display: flex; flex-direction: column; gap: 6px; }
+  .modal-field input[type="color"] { width: 100%; height: var(--h); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg); padding: 2px; cursor: pointer; }
+  #modal-fields { display: flex; flex-direction: column; gap: 14px; }
+  .modal-actions { display: flex; gap: var(--gap); }
+  .link, .c-accent { color: var(--accent); } .c-danger { color: var(--danger); }
+  .link { margin-left: 6px; }
+
+  /* groupes : pastilles */
+  .chip-box { display: flex; flex-wrap: wrap; gap: 6px; min-height: 36px; max-height: 140px; overflow-y: auto; padding: 6px; border: 1px dashed var(--border-hi); border-radius: var(--r-md); }
+  .chip { display: inline-flex; align-items: center; gap: 4px; height: 22px; font-size: var(--fs-xs); padding: 0 8px; border-radius: var(--r-sm); background: var(--bg); border: 1px solid var(--border); color: var(--accent); }
+  .chip b { cursor: pointer; color: var(--danger); font-weight: 400; }
+  .chip-empty { font-size: var(--fs-xs); color: var(--muted); align-self: center; }
+  .chip-pick { cursor: pointer; color: var(--muted); user-select: none; }
+  .chip-pick:hover { border-color: var(--accent); }
+  .chip.neg { color: var(--danger); border-color: var(--danger); }
+  .chip i.sgn { font-style: normal; cursor: pointer; font-weight: 700; padding: 0 2px; }
+  .chip-pick.neg { color: #fff; background: var(--danger); border-color: var(--danger); }
+  .chip-pick.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+  .group-msg { font-size: var(--fs-xs); min-height: 14px; color: var(--muted); }
+  .group-msg.bad { color: var(--danger); }
+
+  /* ───────── PROGRESSION D'EXPORT ───────── */
+  #progress-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(10,10,11,0.92); backdrop-filter: blur(12px);
+    z-index: 1000; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+  }
+  #progress-overlay.visible { display: flex; }
+  .progress-title { font-family: var(--serif); font-style: italic; font-size: var(--fs-xl); color: var(--accent); }
+  .progress-bar-wrap { width: min(var(--modal-w), 80vw); height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.1s; width: 0%; }
+  .progress-info { font-size: var(--fs-sm); color: var(--muted); }
+
+  /* ───────── STATUT ───────── */
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+  .status-dot.ok { background: var(--accent); }
+  .status-dot.rec { background: var(--danger); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .tag { font-size: var(--fs-xs); padding: 2px 6px; border-radius: var(--r-sm); background: var(--border); color: var(--muted); letter-spacing: 1px; }
+  .tag.live { background: var(--danger-dim); color: var(--danger); }
+
+  /* ───────── ICÔNES (Lucide, inline, couleur = currentColor) ───────── */
+  .ico { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  .el-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+  .el-icon .ico { width: 18px; height: 18px; }
+  .el-btn .ico, .kf-delete .ico { width: 14px; height: 14px; }
+  .draw-btn .ico { width: 13px; height: 13px; }
+  .kf-gap .ico { width: 13px; height: 13px; }
+  .chip .ico { width: 11px; height: 11px; }
+  .cdd-item em { display: inline-flex; align-items: center; }
+  .cdd-item em .ico { width: 12px; height: 12px; }
+  .modal-box-title { display: flex; align-items: center; gap: var(--gap); }
+  .modal-box-title .ico { width: 18px; height: 18px; }
+
+  .map-hint .ico { width: 14px; height: 14px; vertical-align: -3px; margin-right: 6px; }
+
+  @media (max-width: 900px) {
+    :root { --side-w: 290px; }
+    .map-controls { align-items: flex-start; gap: 10px; padding: 9px 10px; }
+    .map-controls-fields { flex-wrap: wrap; gap: 8px 10px; }
+    .map-control-field { width: 125px; }
+  }
+  @media (max-width: 650px) {
+    body { grid-template-columns: 240px minmax(0, 1fr); }
+    .map-controls-title { display: none; }
+    .map-controls-fields { gap: 6px; }
+    .map-control-field { width: 110px; }
+    .map-terrain-slider { width: 90px !important; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CineMap <span>v3.0 — cartographic motion design</span></div>
+  <div class="header-key">
+    <input type="text" id="api-key" placeholder="Maptiler API key..." autocomplete="off" title="Maptiler API key — free at cloud.maptiler.com → API Keys">
+    <button class="btn btn-primary" onclick="initMap()" title="Load the map with this key">OK</button>
+  </div>
+  <div class="header-actions">
+    <span id="status-dot" class="status-dot"></span>
+    <span id="status-text" class="status-text">Loading...</span>
+    <span id="rec-tag" class="tag" style="display:none">REC</span>
+  </div>
+</header>
+
+<aside>
+
+
+  <!-- TABS: Keyframes / Elements -->
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tabbtn-kf" onclick="switchTab('kf')">Keyframes</button>
+    <button class="tab-btn" id="tabbtn-el" onclick="switchTab('el')">Elements</button>
+  </div>
+
+  <!-- TAB: KEYFRAMES -->
+  <div class="tab-panel" id="tab-keyframes" style="display:flex">
+    <div class="section section-flush">
+      <div class="section-label section-label-tight">Keyframes
+        <span class="kf-count" id="kf-count">0 / 10</span>
+      </div>
+      <button class="btn btn-accent2 btn-full" onclick="captureKeyframe()" id="btn-capture" disabled>
+        + Capture current view
+      </button>
+    </div>
+    <div class="kf-list" id="kf-list">
+      <div class="kf-empty">Navigate the map<br>and capture views</div>
+    </div>
+  </div>
+
+  <!-- TAB: ELEMENTS (Overlay Engine UI) -->
+  <div class="tab-panel" id="tab-elements" style="display:none">
+    <div class="section section-flush">
+      <div class="section-label section-label-tight">Elements</div>
+      <div class="tool-row">
+        <button class="tool-btn" data-tool="country" onclick="ToolEngine.toggle('country')"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" /> <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /> <path d="M2 12h20" /></svg> Country</button>
+        <button class="tool-btn" data-tool="point" onclick="ToolEngine.toggle('point')"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /> <circle cx="12" cy="10" r="3" /></svg> Point</button>
+        <button class="tool-btn" data-tool="text" onclick="ToolEngine.toggle('text')"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16" /> <path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2" /> <path d="M9 20h6" /></svg> Text</button>
+        <button class="tool-btn" data-tool="image" onclick="ToolEngine.startImage()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /> <circle cx="9" cy="9" r="2" /> <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></svg> Image</button>
+        <button class="tool-btn" data-tool="draw" onclick="ToolEngine.toggle('draw')" title="Draw a custom polygon (snaps to existing borders)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.83 2.38a2 2 0 0 1 2.34 0l8 5.74a2 2 0 0 1 .73 2.25l-3.04 9.26a2 2 0 0 1-1.9 1.37H7.04a2 2 0 0 1-1.9-1.37L2.1 10.37a2 2 0 0 1 .73-2.25z" /></svg> Draw</button>
+        <button class="tool-btn" onclick="GeoImport.pick()" title="Import a GeoJSON / TopoJSON file (or drop it on the map)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" /></svg> Import</button>
+        <button class="tool-btn" onclick="GroupBuilder.open()" title="Group / merge layers (countries, drawn shapes) — with optional subtraction"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5c0-1.1.9-2 2-2h2" /> <path d="M17 3h2c1.1 0 2 .9 2 2v2" /> <path d="M21 17v2c0 1.1-.9 2-2 2h-2" /> <path d="M7 21H5c-1.1 0-2-.9-2-2v-2" /> <rect width="7" height="5" x="7" y="7" rx="1" /> <rect width="7" height="5" x="10" y="12" rx="1" /></svg> Group</button>
+      </div>
+      <div class="country-search-row" id="country-search-row" style="display:none">
+        <input type="text" id="country-search-input" placeholder="Search for a country..." autocomplete="off">
+      </div>
+    </div>
+    <div class="kf-list" id="elements-list">
+      <div class="kf-empty">Add a country, point, text,<br>image or custom shape<br>using the buttons above</div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn btn-ghost btn-full btn-quiet-danger" onclick="OverlayEngine.clearAll()">Clear elements</button>
+    </div>
+  </div>
+
+  <!-- SETTINGS / EXPORT -->
+  <div class="bottom-panel">
+    <div class="section-label">Export settings</div>
+    <div class="settings-grid">
+      <div>
+        <div class="field-label">FPS</div>
+        <select id="fps-select">
+          <option value="24">24</option>
+          <option value="30" selected>30</option>
+          <option value="60">60</option>
+        </select>
+      </div>
+      <div>
+        <div class="field-label">Resolution</div>
+        <select id="res-select">
+          <option value="1280x720">720p</option>
+          <option value="1920x1080" selected>1080p</option>
+          <option value="2560x1440">1440p</option>
+          <option value="3840x2160">4K</option>
+        </select>
+      </div>
+      <div>
+        <div class="field-label">Quality</div>
+        <select id="quality-select" title="Anti-aliased 2× = render at 2× then downscale (≤1080p): smooths out 1-pixel details. Does not change motion smoothness.">
+          <option value="standard" selected>Standard</option>
+          <option value="smooth">Anti-aliased 2×</option>
+        </select>
+      </div>
+      <div>
+        <div class="field-label">Camera path</div>
+        <select id="path-select">
+          <option value="fly" selected>Fly</option>
+          <option value="linear">Linear</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="export-actions">
+      <button class="btn btn-ghost grow" onclick="previewAnimation()" id="btn-preview" disabled><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg> Preview</button>
+      <button class="btn btn-primary grow-2" onclick="startExport()" id="btn-export" disabled><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /></svg> Export MP4</button>
+      <button class="btn btn-ghost btn-icon" onclick="exportFramePNG()" id="btn-png" title="Save the current view as a lossless PNG at export resolution"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z" /> <circle cx="12" cy="13" r="3" /></svg></button>
+    </div>
+    <button class="btn btn-ghost btn-full btn-quiet-danger" onclick="clearAll()" id="btn-clear">Clear all (keyframes)</button>
+  </div>
+</aside>
+
+<main class="workspace">
+  <div class="map-controls">
+    <div class="map-controls-title">MAP</div>
+    <div class="map-controls-fields">
+      <div class="map-control-field">
+        <div class="field-label">Style</div>
+        <select id="style-select" onchange="StyleEngine.switch(this.value)" title="Map style">
+          <option value="satellite" selected>Satellite</option>
+          <option value="hybrid">Hybrid</option>
+          <option value="streets">Streets</option>
+          <option value="basic">Basic</option>
+          <option value="bright">Bright</option>
+          <option value="topo">Topo</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+      <div class="map-control-field">
+        <div class="field-label">Projection</div>
+        <select id="projection-select" onchange="GlobeEngine.setMode(this.value)" title="Projection">
+          <option value="flat" selected>Flat</option>
+          <option value="globe">Globe</option>
+        </select>
+      </div>
+      <label class="chk map-check" title="Hide place and country names"><input type="checkbox" id="labels-toggle" onchange="LabelEngine.set(this.checked)"> Hide names</label>
+      <label class="chk map-check" title="3D terrain (mountains, relief). Forces Flat projection."><input type="checkbox" id="terrain-toggle" onchange="TerrainEngine.set(this.checked)"> 3D relief</label>
+      <input type="range" class="map-terrain-slider" id="terrain-slider" min="0.5" max="4" step="0.1" value="1.5" oninput="TerrainEngine.setExaggeration(this.value)" title="Relief exaggeration">
+      <span id="terrain-val" class="terrain-val">1.5×</span>
+    </div>
+  </div>
+  <div class="map-wrapper">
+  <div class="map-16-9">
+    <div id="map"></div>
+
+    <!-- GUIDES (not exported) -->
+    <div class="guide guide-safe guide-action" id="guide-action"><span>ACTION SAFE 93%</span></div>
+    <div class="guide guide-safe guide-title" id="guide-title"><span>TITLE SAFE 90%</span></div>
+    <div class="guide guide-cross" id="guide-cross"></div>
+
+    <!-- DRAW BAR (visible only with the Draw tool) -->
+    <div class="draw-bar" id="draw-bar">
+      <span id="draw-count">0 pts</span>
+      <label class="chk" title="Snap to vertices of existing country/shape borders (hold Alt to bypass)"><input type="checkbox" id="draw-snap" checked> Snap</label>
+      <button class="draw-btn" onclick="DrawEngine.undo()" title="Undo last point (Backspace)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5" /> <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" /></svg> Undo</button>
+      <button class="draw-btn draw-ok" onclick="DrawEngine.finish()" title="Finish polygon (Enter / double-click)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg> Finish</button>
+      <button class="draw-btn" onclick="DrawEngine.cancel()" title="Cancel (Esc)" aria-label="Cancel"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18" /> <path d="m6 6 12 12" /></svg></button>
+    </div>
+
+    <!-- SEARCH BAR -->
+    <div class="map-search" id="map-search">
+      <div class="map-search-row">
+        <input type="text" id="search-input" placeholder="Search a place, city, address..." autocomplete="off">
+        <button class="btn-search" id="btn-search" onclick="doSearch()" aria-label="Search"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /></svg></button>
+      </div>
+      <div class="search-results" id="search-results"></div>
+    </div>
+
+    <div id="playback-bar"><div id="playback-fill"></div></div>
+    <div class="map-hint" id="map-hint">Loading map...</div>
+  </div>
+</div>
+</main>
+
+<!-- GROUP BUILDER -->
+<div id="group-modal-overlay" onclick="if(event.target===this) GroupBuilder.close()">
+  <div class="modal-box">
+    <div class="modal-box-title"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5c0-1.1.9-2 2-2h2" /> <path d="M17 3h2c1.1 0 2 .9 2 2v2" /> <path d="M21 17v2c0 1.1-.9 2-2 2h-2" /> <path d="M7 21H5c-1.1 0-2-.9-2-2v-2" /> <rect width="7" height="5" x="7" y="7" rx="1" /> <rect width="7" height="5" x="10" y="12" rx="1" /></svg> Group / merge layers</div>
+    <div class="modal-field"><label>Name</label><input type="text" id="group-name" placeholder="e.g. Axis 1941" autocomplete="off"></div>
+    <div class="modal-field" id="group-layers-wrap" style="display:none"><label>Your layers (countries + drawn shapes) — click to cycle: <b class="c-accent">+ add</b> → <b class="c-danger">− subtract</b> → off
+      <a href="#" class="link" onclick="GroupBuilder.selectAllLayers();return false">select all</a></label>
+      <div class="chip-box" id="group-layers"></div></div>
+    <div class="modal-field"><label>Add other countries — Enter, or paste a comma-separated list (click + / − on a chip to switch)</label>
+      <input type="text" id="group-input" placeholder="Germany, Austria, Poland..." autocomplete="off"></div>
+    <div class="chip-box" id="group-chips"></div>
+    <div class="group-msg" id="group-msg"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="GroupBuilder.close()">Cancel</button>
+      <button class="btn btn-primary grow" onclick="GroupBuilder.create()">Create group</button>
+    </div>
+  </div>
+</div>
+
+<!-- PROGRESS OVERLAY -->
+<div id="progress-overlay">
+  <div class="progress-title">Rendering...</div>
+  <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-fill"></div></div>
+  <div class="progress-info" id="progress-info">Initializing...</div>
+  <button class="btn btn-ghost" onclick="cancelExport()">Cancel</button>
+</div>
+
+<!-- GENERIC OVERLAY EDITOR MODAL (Country/Point/Text/Image) -->
+<div id="editor-modal-overlay" onclick="if(event.target===this) OverlayEngine.closeEditor()">
+  <div class="modal-box">
+    <div class="modal-box-title" id="modal-title" title="Drag to move this panel">Options <span style="font:10px var(--mono);color:var(--muted);margin-left:auto">DRAG</span></div>
+    <div id="modal-fields"></div>
+    <button class="btn btn-primary btn-full" onclick="OverlayEngine.closeEditor()">Close</button>
+  </div>
+</div>
+
+<!-- Hidden file input used by the Image Engine -->
+<input type="file" id="image-upload-input" accept="image/*" style="display:none">
+<input type="file" id="geojson-upload-input" accept=".geojson,.json,application/geo+json,application/json" style="display:none">
+
+<script>/* Lucide v1.73.0 (ISC) — icônes inline */
+const ICONS = {"triangle-alert": "<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\" /> <path d=\"M12 9v4\" /> <path d=\"M12 17h.01\" />", "globe": "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\" /> <path d=\"M2 12h20\" />", "map-pin": "<path d=\"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0\" /> <circle cx=\"12\" cy=\"10\" r=\"3\" />", "type": "<path d=\"M12 4v16\" /> <path d=\"M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2\" /> <path d=\"M9 20h6\" />", "image": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\" /> <circle cx=\"9\" cy=\"9\" r=\"2\" /> <path d=\"m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21\" />", "pentagon": "<path d=\"M10.83 2.38a2 2 0 0 1 2.34 0l8 5.74a2 2 0 0 1 .73 2.25l-3.04 9.26a2 2 0 0 1-1.9 1.37H7.04a2 2 0 0 1-1.9-1.37L2.1 10.37a2 2 0 0 1 .73-2.25z\" />", "folder-open": "<path d=\"m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2\" />", "group": "<path d=\"M3 7V5c0-1.1.9-2 2-2h2\" /> <path d=\"M17 3h2c1.1 0 2 .9 2 2v2\" /> <path d=\"M21 17v2c0 1.1-.9 2-2 2h-2\" /> <path d=\"M7 21H5c-1.1 0-2-.9-2-2v-2\" /> <rect width=\"7\" height=\"5\" x=\"7\" y=\"7\" rx=\"1\" /> <rect width=\"7\" height=\"5\" x=\"10\" y=\"12\" rx=\"1\" />", "ungroup": "<rect x=\"11\" y=\"14\" width=\"10\" height=\"7\" rx=\"2\" /> <rect x=\"3\" y=\"3\" width=\"10\" height=\"7\" rx=\"2\" />", "crosshair": "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <line x1=\"22\" x2=\"18\" y1=\"12\" y2=\"12\" /> <line x1=\"6\" x2=\"2\" y1=\"12\" y2=\"12\" /> <line x1=\"12\" x2=\"12\" y1=\"6\" y2=\"2\" /> <line x1=\"12\" x2=\"12\" y1=\"22\" y2=\"18\" />", "eye": "<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\" /> <circle cx=\"12\" cy=\"12\" r=\"3\" />", "eye-off": "<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\" /> <path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\" /> <path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\" /> <path d=\"m2 2 20 20\" />", "chevron-up": "<path d=\"m18 15-6-6-6 6\" />", "chevron-down": "<path d=\"m6 9 6 6 6-6\" />", "settings": "<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\" /> <circle cx=\"12\" cy=\"12\" r=\"3\" />", "x": "<path d=\"M18 6 6 18\" /> <path d=\"m6 6 12 12\" />", "undo-2": "<path d=\"M9 14 4 9l5-5\" /> <path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\" />", "check": "<path d=\"M20 6 9 17l-5-5\" />", "download": "<path d=\"M12 15V3\" /> <path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\" /> <path d=\"m7 10 5 5 5-5\" />", "play": "<path d=\"M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z\" />", "camera": "<path d=\"M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z\" /> <circle cx=\"12\" cy=\"13\" r=\"3\" />", "timer": "<line x1=\"10\" x2=\"14\" y1=\"2\" y2=\"2\" /> <line x1=\"12\" x2=\"15\" y1=\"14\" y2=\"11\" /> <circle cx=\"12\" cy=\"14\" r=\"8\" />", "search": "<path d=\"m21 21-4.34-4.34\" /> <circle cx=\"11\" cy=\"11\" r=\"8\" />"};
+function icon(n){ return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">' + ICONS[n] + '</svg>'; }
+</script>
+<script>/* topojson-client v3.1.0 (ISC) — embarqué pour dissoudre les frontières des groupes de pays */
+// https://github.com/topojson/topojson-client v3.1.0 Copyright 2019 Mike Bostock
+!function(e,t){"object"==typeof exports&&"undefined"!=typeof module?t(exports):"function"==typeof define&&define.amd?define(["exports"],t):t((e=e||self).topojson=e.topojson||{})}(this,function(e){"use strict";function t(e){return e}function r(e){if(null==e)return t;var r,n,o=e.scale[0],a=e.scale[1],i=e.translate[0],c=e.translate[1];return function(e,t){t||(r=n=0);var u=2,f=e.length,s=new Array(f);for(s[0]=(r+=e[0])*o+i,s[1]=(n+=e[1])*a+c;u<f;)s[u]=e[u],++u;return s}}function n(e){var t,n=r(e.transform),o=1/0,a=o,i=-o,c=-o;function u(e){(e=n(e))[0]<o&&(o=e[0]),e[0]>i&&(i=e[0]),e[1]<a&&(a=e[1]),e[1]>c&&(c=e[1])}function f(e){switch(e.type){case"GeometryCollection":e.geometries.forEach(f);break;case"Point":u(e.coordinates);break;case"MultiPoint":e.coordinates.forEach(u)}}for(t in e.arcs.forEach(function(e){for(var t,r=-1,u=e.length;++r<u;)(t=n(e[r],r))[0]<o&&(o=t[0]),t[0]>i&&(i=t[0]),t[1]<a&&(a=t[1]),t[1]>c&&(c=t[1])}),e.objects)f(e.objects[t]);return[o,a,i,c]}function o(e,t){var r=t.id,n=t.bbox,o=null==t.properties?{}:t.properties,i=a(e,t);return null==r&&null==n?{type:"Feature",properties:o,geometry:i}:null==n?{type:"Feature",id:r,properties:o,geometry:i}:{type:"Feature",id:r,bbox:n,properties:o,geometry:i}}function a(e,t){var n=r(e.transform),o=e.arcs;function a(e,t){t.length&&t.pop();for(var r=o[e<0?~e:e],a=0,i=r.length;a<i;++a)t.push(n(r[a],a));e<0&&function(e,t){for(var r,n=e.length,o=n-t;o<--n;)r=e[o],e[o++]=e[n],e[n]=r}(t,i)}function i(e){return n(e)}function c(e){for(var t=[],r=0,n=e.length;r<n;++r)a(e[r],t);return t.length<2&&t.push(t[0]),t}function u(e){for(var t=c(e);t.length<4;)t.push(t[0]);return t}function f(e){return e.map(u)}return function e(t){var r,n=t.type;switch(n){case"GeometryCollection":return{type:n,geometries:t.geometries.map(e)};case"Point":r=i(t.coordinates);break;case"MultiPoint":r=t.coordinates.map(i);break;case"LineString":r=c(t.arcs);break;case"MultiLineString":r=t.arcs.map(c);break;case"Polygon":r=f(t.arcs);break;case"MultiPolygon":r=t.arcs.map(f);break;default:return null}return{type:n,coordinates:r}}(t)}function i(e,t){var r={},n={},o={},a=[],i=-1;function c(e,t){for(var n in e){var o=e[n];delete t[o.start],delete o.start,delete o.end,o.forEach(function(e){r[e<0?~e:e]=1}),a.push(o)}}return t.forEach(function(r,n){var o,a=e.arcs[r<0?~r:r];a.length<3&&!a[1][0]&&!a[1][1]&&(o=t[++i],t[i]=r,t[n]=o)}),t.forEach(function(t){var r,a,i=function(t){var r,n=e.arcs[t<0?~t:t],o=n[0];e.transform?(r=[0,0],n.forEach(function(e){r[0]+=e[0],r[1]+=e[1]})):r=n[n.length-1];return t<0?[r,o]:[o,r]}(t),c=i[0],u=i[1];if(r=o[c])if(delete o[r.end],r.push(t),r.end=u,a=n[u]){delete n[a.start];var f=a===r?r:r.concat(a);n[f.start=r.start]=o[f.end=a.end]=f}else n[r.start]=o[r.end]=r;else if(r=n[u])if(delete n[r.start],r.unshift(t),r.start=c,a=o[c]){delete o[a.end];var s=a===r?r:a.concat(r);n[s.start=a.start]=o[s.end=r.end]=s}else n[r.start]=o[r.end]=r;else n[(r=[t]).start=c]=o[r.end=u]=r}),c(o,n),c(n,o),t.forEach(function(e){r[e<0?~e:e]||a.push([e])}),a}function c(e,t,r){var n,o,a;if(arguments.length>1)n=function(e,t,r){var n,o=[],a=[];function i(e){var t=e<0?~e:e;(a[t]||(a[t]=[])).push({i:e,g:n})}function c(e){e.forEach(i)}function u(e){e.forEach(c)}return function e(t){switch(n=t,t.type){case"GeometryCollection":t.geometries.forEach(e);break;case"LineString":c(t.arcs);break;case"MultiLineString":case"Polygon":u(t.arcs);break;case"MultiPolygon":!function(e){e.forEach(u)}(t.arcs)}}(t),a.forEach(null==r?function(e){o.push(e[0].i)}:function(e){r(e[0].g,e[e.length-1].g)&&o.push(e[0].i)}),o}(0,t,r);else for(o=0,n=new Array(a=e.arcs.length);o<a;++o)n[o]=o;return{type:"MultiLineString",arcs:i(e,n)}}function u(e,t){var r={},n=[],o=[];function c(e){e.forEach(function(t){t.forEach(function(t){(r[t=t<0?~t:t]||(r[t]=[])).push(e)})}),n.push(e)}function u(t){return function(e){for(var t,r=-1,n=e.length,o=e[n-1],a=0;++r<n;)t=o,o=e[r],a+=t[0]*o[1]-t[1]*o[0];return Math.abs(a)}(a(e,{type:"Polygon",arcs:[t]}).coordinates[0])}return t.forEach(function e(t){switch(t.type){case"GeometryCollection":t.geometries.forEach(e);break;case"Polygon":c(t.arcs);break;case"MultiPolygon":t.arcs.forEach(c)}}),n.forEach(function(e){if(!e._){var t=[],n=[e];for(e._=1,o.push(t);e=n.pop();)t.push(e),e.forEach(function(e){e.forEach(function(e){r[e<0?~e:e].forEach(function(e){e._||(e._=1,n.push(e))})})})}}),n.forEach(function(e){delete e._}),{type:"MultiPolygon",arcs:o.map(function(t){var n,o=[];if(t.forEach(function(e){e.forEach(function(e){e.forEach(function(e){r[e<0?~e:e].length<2&&o.push(e)})})}),(n=(o=i(e,o)).length)>1)for(var a,c,f=1,s=u(o[0]);f<n;++f)(a=u(o[f]))>s&&(c=o[0],o[0]=o[f],o[f]=c,s=a);return o}).filter(function(e){return e.length>0})}}function f(e,t){for(var r=0,n=e.length;r<n;){var o=r+n>>>1;e[o]<t?r=o+1:n=o}return r}function s(e){if(null==e)return t;var r,n,o=e.scale[0],a=e.scale[1],i=e.translate[0],c=e.translate[1];return function(e,t){t||(r=n=0);var u=2,f=e.length,s=new Array(f),l=Math.round((e[0]-i)/o),h=Math.round((e[1]-c)/a);for(s[0]=l-r,r=l,s[1]=h-n,n=h;u<f;)s[u]=e[u],++u;return s}}e.bbox=n,e.feature=function(e,t){return"string"==typeof t&&(t=e.objects[t]),"GeometryCollection"===t.type?{type:"FeatureCollection",features:t.geometries.map(function(t){return o(e,t)})}:o(e,t)},e.merge=function(e){return a(e,u.apply(this,arguments))},e.mergeArcs=u,e.mesh=function(e){return a(e,c.apply(this,arguments))},e.meshArcs=c,e.neighbors=function(e){var t={},r=e.map(function(){return[]});function n(e,r){e.forEach(function(e){e<0&&(e=~e);var n=t[e];n?n.push(r):t[e]=[r]})}function o(e,t){e.forEach(function(e){n(e,t)})}var a={LineString:n,MultiLineString:o,Polygon:o,MultiPolygon:function(e,t){e.forEach(function(e){o(e,t)})}};for(var i in e.forEach(function e(t,r){"GeometryCollection"===t.type?t.geometries.forEach(function(t){e(t,r)}):t.type in a&&a[t.type](t.arcs,r)}),t)for(var c=t[i],u=c.length,s=0;s<u;++s)for(var l=s+1;l<u;++l){var h,p=c[s],g=c[l];(h=r[p])[i=f(h,g)]!==g&&h.splice(i,0,g),(h=r[g])[i=f(h,p)]!==p&&h.splice(i,0,p)}return r},e.quantize=function(e,t){if(e.transform)throw new Error("already quantized");if(t&&t.scale)u=e.bbox;else{if(!((r=Math.floor(t))>=2))throw new Error("n must be ≥2");var r,o=(u=e.bbox||n(e))[0],a=u[1],i=u[2],c=u[3];t={scale:[i-o?(i-o)/(r-1):1,c-a?(c-a)/(r-1):1],translate:[o,a]}}var u,f,l=s(t),h=e.objects,p={};function g(e){return l(e)}function y(e){var t;switch(e.type){case"GeometryCollection":t={type:"GeometryCollection",geometries:e.geometries.map(y)};break;case"Point":t={type:"Point",coordinates:g(e.coordinates)};break;case"MultiPoint":t={type:"MultiPoint",coordinates:e.coordinates.map(g)};break;default:return e}return null!=e.id&&(t.id=e.id),null!=e.bbox&&(t.bbox=e.bbox),null!=e.properties&&(t.properties=e.properties),t}for(f in h)p[f]=y(h[f]);return{type:"Topology",bbox:u,transform:t,objects:p,arcs:e.arcs.map(function(e){var t,r=0,n=1,o=e.length,a=new Array(o);for(a[0]=l(e[0],0);++r<o;)((t=l(e[r],r))[0]||t[1])&&(a[n++]=t);return 1===n&&(a[n++]=[0,0]),a.length=n,a})}},e.transform=r,e.untransform=s,Object.defineProperty(e,"__esModule",{value:!0})});
+
+</script>
+<script>/* polygon-clipping v0.15.7 (MIT) — union / difference of drawn shapes and groups */
+!function(t,e){"object"==typeof exports&&"undefined"!=typeof module?module.exports=e():"function"==typeof define&&define.amd?define(e):(t="undefined"!=typeof globalThis?globalThis:t||self).polygonClipping=e()}(this,(function(){"use strict";
+/**
+     * splaytree v3.1.2
+     * Fast Splay tree for Node and browser
+     *
+     * @author Alexander Milevski <info@w8r.name>
+     * @license MIT
+     * @preserve
+     */
+/*! *****************************************************************************
+    Copyright (c) Microsoft Corporation. All rights reserved.
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+    this file except in compliance with the License. You may obtain a copy of the
+    License at http://www.apache.org/licenses/LICENSE-2.0
+
+    THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY IMPLIED
+    WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
+    MERCHANTABLITY OR NON-INFRINGEMENT.
+
+    See the Apache Version 2.0 License for specific language governing permissions
+    and limitations under the License.
+    ***************************************************************************** */function t(t,e){var n,r,i,o,s={label:0,sent:function(){if(1&i[0])throw i[1];return i[1]},trys:[],ops:[]};return o={next:l(0),throw:l(1),return:l(2)},"function"==typeof Symbol&&(o[Symbol.iterator]=function(){return this}),o;function l(o){return function(l){return function(o){if(n)throw new TypeError("Generator is already executing.");for(;s;)try{if(n=1,r&&(i=2&o[0]?r.return:o[0]?r.throw||((i=r.return)&&i.call(r),0):r.next)&&!(i=i.call(r,o[1])).done)return i;switch(r=0,i&&(o=[2&o[0],i.value]),o[0]){case 0:case 1:i=o;break;case 4:return s.label++,{value:o[1],done:!1};case 5:s.label++,r=o[1],o=[0];continue;case 7:o=s.ops.pop(),s.trys.pop();continue;default:if(!(i=s.trys,(i=i.length>0&&i[i.length-1])||6!==o[0]&&2!==o[0])){s=0;continue}if(3===o[0]&&(!i||o[1]>i[0]&&o[1]<i[3])){s.label=o[1];break}if(6===o[0]&&s.label<i[1]){s.label=i[1],i=o;break}if(i&&s.label<i[2]){s.label=i[2],s.ops.push(o);break}i[2]&&s.ops.pop(),s.trys.pop();continue}o=e.call(t,s)}catch(t){o=[6,t],r=0}finally{n=i=0}if(5&o[0])throw o[1];return{value:o[0]?o[1]:void 0,done:!0}}([o,l])}}}var e=function(t,e){this.next=null,this.key=t,this.data=e,this.left=null,this.right=null};function n(t,e){return t>e?1:t<e?-1:0}function r(t,n,r){for(var i=new e(null,null),o=i,s=i;;){var l=r(t,n.key);if(l<0){if(null===n.left)break;if(r(t,n.left.key)<0){var h=n.left;if(n.left=h.right,h.right=n,null===(n=h).left)break}s.left=n,s=n,n=n.left}else{if(!(l>0))break;if(null===n.right)break;if(r(t,n.right.key)>0){h=n.right;if(n.right=h.left,h.left=n,null===(n=h).right)break}o.right=n,o=n,n=n.right}}return o.right=n.left,s.left=n.right,n.left=i.right,n.right=i.left,n}function i(t,n,i,o){var s=new e(t,n);if(null===i)return s.left=s.right=null,s;var l=o(t,(i=r(t,i,o)).key);return l<0?(s.left=i.left,s.right=i,i.left=null):l>=0&&(s.right=i.right,s.left=i,i.right=null),s}function o(t,e,n){var i=null,o=null;if(e){var s=n((e=r(t,e,n)).key,t);0===s?(i=e.left,o=e.right):s<0?(o=e.right,e.right=null,i=e):(i=e.left,e.left=null,o=e)}return{left:i,right:o}}function s(t,e,n,r,i){if(t){r(e+(n?"└── ":"├── ")+i(t)+"\n");var o=e+(n?"    ":"│   ");t.left&&s(t.left,o,!1,r,i),t.right&&s(t.right,o,!0,r,i)}}var l=function(){function l(t){void 0===t&&(t=n),this._root=null,this._size=0,this._comparator=t}return l.prototype.insert=function(t,e){return this._size++,this._root=i(t,e,this._root,this._comparator)},l.prototype.add=function(t,n){var i=new e(t,n);null===this._root&&(i.left=i.right=null,this._size++,this._root=i);var o=this._comparator,s=r(t,this._root,o),l=o(t,s.key);return 0===l?this._root=s:(l<0?(i.left=s.left,i.right=s,s.left=null):l>0&&(i.right=s.right,i.left=s,s.right=null),this._size++,this._root=i),this._root},l.prototype.remove=function(t){this._root=this._remove(t,this._root,this._comparator)},l.prototype._remove=function(t,e,n){var i;return null===e?null:0===n(t,(e=r(t,e,n)).key)?(null===e.left?i=e.right:(i=r(t,e.left,n)).right=e.right,this._size--,i):e},l.prototype.pop=function(){var t=this._root;if(t){for(;t.left;)t=t.left;return this._root=r(t.key,this._root,this._comparator),this._root=this._remove(t.key,this._root,this._comparator),{key:t.key,data:t.data}}return null},l.prototype.findStatic=function(t){for(var e=this._root,n=this._comparator;e;){var r=n(t,e.key);if(0===r)return e;e=r<0?e.left:e.right}return null},l.prototype.find=function(t){return this._root&&(this._root=r(t,this._root,this._comparator),0!==this._comparator(t,this._root.key))?null:this._root},l.prototype.contains=function(t){for(var e=this._root,n=this._comparator;e;){var r=n(t,e.key);if(0===r)return!0;e=r<0?e.left:e.right}return!1},l.prototype.forEach=function(t,e){for(var n=this._root,r=[],i=!1;!i;)null!==n?(r.push(n),n=n.left):0!==r.length?(n=r.pop(),t.call(e,n),n=n.right):i=!0;return this},l.prototype.range=function(t,e,n,r){for(var i=[],o=this._comparator,s=this._root;0!==i.length||s;)if(s)i.push(s),s=s.left;else{if(o((s=i.pop()).key,e)>0)break;if(o(s.key,t)>=0&&n.call(r,s))return this;s=s.right}return this},l.prototype.keys=function(){var t=[];return this.forEach((function(e){var n=e.key;return t.push(n)})),t},l.prototype.values=function(){var t=[];return this.forEach((function(e){var n=e.data;return t.push(n)})),t},l.prototype.min=function(){return this._root?this.minNode(this._root).key:null},l.prototype.max=function(){return this._root?this.maxNode(this._root).key:null},l.prototype.minNode=function(t){if(void 0===t&&(t=this._root),t)for(;t.left;)t=t.left;return t},l.prototype.maxNode=function(t){if(void 0===t&&(t=this._root),t)for(;t.right;)t=t.right;return t},l.prototype.at=function(t){for(var e=this._root,n=!1,r=0,i=[];!n;)if(e)i.push(e),e=e.left;else if(i.length>0){if(e=i.pop(),r===t)return e;r++,e=e.right}else n=!0;return null},l.prototype.next=function(t){var e=this._root,n=null;if(t.right){for(n=t.right;n.left;)n=n.left;return n}for(var r=this._comparator;e;){var i=r(t.key,e.key);if(0===i)break;i<0?(n=e,e=e.left):e=e.right}return n},l.prototype.prev=function(t){var e=this._root,n=null;if(null!==t.left){for(n=t.left;n.right;)n=n.right;return n}for(var r=this._comparator;e;){var i=r(t.key,e.key);if(0===i)break;i<0?e=e.left:(n=e,e=e.right)}return n},l.prototype.clear=function(){return this._root=null,this._size=0,this},l.prototype.toList=function(){return function(t){var n=t,r=[],i=!1,o=new e(null,null),s=o;for(;!i;)n?(r.push(n),n=n.left):r.length>0?n=(n=s=s.next=r.pop()).right:i=!0;return s.next=null,o.next}(this._root)},l.prototype.load=function(t,n,r){void 0===n&&(n=[]),void 0===r&&(r=!1);var i=t.length,o=this._comparator;if(r&&f(t,n,0,i-1,o),null===this._root)this._root=h(t,n,0,i),this._size=i;else{var s=function(t,n,r){var i=new e(null,null),o=i,s=t,l=n;for(;null!==s&&null!==l;)r(s.key,l.key)<0?(o.next=s,s=s.next):(o.next=l,l=l.next),o=o.next;null!==s?o.next=s:null!==l&&(o.next=l);return i.next}(this.toList(),function(t,n){for(var r=new e(null,null),i=r,o=0;o<t.length;o++)i=i.next=new e(t[o],n[o]);return i.next=null,r.next}(t,n),o);i=this._size+i,this._root=u({head:s},0,i)}return this},l.prototype.isEmpty=function(){return null===this._root},Object.defineProperty(l.prototype,"size",{get:function(){return this._size},enumerable:!0,configurable:!0}),Object.defineProperty(l.prototype,"root",{get:function(){return this._root},enumerable:!0,configurable:!0}),l.prototype.toString=function(t){void 0===t&&(t=function(t){return String(t.key)});var e=[];return s(this._root,"",!0,(function(t){return e.push(t)}),t),e.join("")},l.prototype.update=function(t,e,n){var s=this._comparator,l=o(t,this._root,s),h=l.left,u=l.right;s(t,e)<0?u=i(e,n,u,s):h=i(e,n,h,s),this._root=function(t,e,n){return null===e?t:(null===t||((e=r(t.key,e,n)).left=t),e)}(h,u,s)},l.prototype.split=function(t){return o(t,this._root,this._comparator)},l.prototype[Symbol.iterator]=function(){var e,n,r;return t(this,(function(t){switch(t.label){case 0:e=this._root,n=[],r=!1,t.label=1;case 1:return r?[3,6]:null===e?[3,2]:(n.push(e),e=e.left,[3,5]);case 2:return 0===n.length?[3,4]:[4,e=n.pop()];case 3:return t.sent(),e=e.right,[3,5];case 4:r=!0,t.label=5;case 5:return[3,1];case 6:return[2]}}))},l}();function h(t,n,r,i){var o=i-r;if(o>0){var s=r+Math.floor(o/2),l=t[s],u=n[s],f=new e(l,u);return f.left=h(t,n,r,s),f.right=h(t,n,s+1,i),f}return null}function u(t,e,n){var r=n-e;if(r>0){var i=e+Math.floor(r/2),o=u(t,e,i),s=t.head;return s.left=o,t.head=t.head.next,s.right=u(t,i+1,n),s}return null}function f(t,e,n,r,i){if(!(n>=r)){for(var o=t[n+r>>1],s=n-1,l=r+1;;){do{s++}while(i(t[s],o)<0);do{l--}while(i(t[l],o)>0);if(s>=l)break;var h=t[s];t[s]=t[l],t[l]=h,h=e[s],e[s]=e[l],e[l]=h}f(t,e,n,l,i),f(t,e,l+1,r,i)}}const c=(t,e)=>t.ll.x<=e.x&&e.x<=t.ur.x&&t.ll.y<=e.y&&e.y<=t.ur.y,p=(t,e)=>{if(e.ur.x<t.ll.x||t.ur.x<e.ll.x||e.ur.y<t.ll.y||t.ur.y<e.ll.y)return null;const n=t.ll.x<e.ll.x?e.ll.x:t.ll.x,r=t.ur.x<e.ur.x?t.ur.x:e.ur.x;return{ll:{x:n,y:t.ll.y<e.ll.y?e.ll.y:t.ll.y},ur:{x:r,y:t.ur.y<e.ur.y?t.ur.y:e.ur.y}}};let g=Number.EPSILON;void 0===g&&(g=Math.pow(2,-52));const a=g*g,y=(t,e)=>{if(-g<t&&t<g&&-g<e&&e<g)return 0;const n=t-e;return n*n<a*t*e?0:t<e?-1:1};class x{constructor(){this.tree=new l,this.round(0)}round(t){const e=this.tree.add(t),n=this.tree.prev(e);if(null!==n&&0===y(e.key,n.key))return this.tree.remove(t),n.key;const r=this.tree.next(e);return null!==r&&0===y(e.key,r.key)?(this.tree.remove(t),r.key):t}}const b=new class{constructor(){this.reset()}reset(){this.xRounder=new x,this.yRounder=new x}round(t,e){return{x:this.xRounder.round(t),y:this.yRounder.round(e)}}},v=11102230246251565e-32,d=134217729,m=(3+8*v)*v;function E(t,e,n,r,i){let o,s,l,h,u=e[0],f=r[0],c=0,p=0;f>u==f>-u?(o=u,u=e[++c]):(o=f,f=r[++p]);let g=0;if(c<t&&p<n)for(f>u==f>-u?(s=u+o,l=o-(s-u),u=e[++c]):(s=f+o,l=o-(s-f),f=r[++p]),o=s,0!==l&&(i[g++]=l);c<t&&p<n;)f>u==f>-u?(s=o+u,h=s-o,l=o-(s-h)+(u-h),u=e[++c]):(s=o+f,h=s-o,l=o-(s-h)+(f-h),f=r[++p]),o=s,0!==l&&(i[g++]=l);for(;c<t;)s=o+u,h=s-o,l=o-(s-h)+(u-h),u=e[++c],o=s,0!==l&&(i[g++]=l);for(;p<n;)s=o+f,h=s-o,l=o-(s-h)+(f-h),f=r[++p],o=s,0!==l&&(i[g++]=l);return 0===o&&0!==g||(i[g++]=o),g}function S(t){return new Float64Array(t)}const _=22204460492503146e-32,w=11093356479670487e-47,k=S(4),R=S(8),I=S(12),P=S(16),N=S(4);function A(t,e,n,r,i,o){const s=(e-o)*(n-i),l=(t-i)*(r-o),h=s-l,u=Math.abs(s+l);return Math.abs(h)>=33306690738754716e-32*u?h:-function(t,e,n,r,i,o,s){let l,h,u,f,c,p,g,a,y,x,b,v,S,A,O,L,$,M;const z=t-i,B=n-i,G=e-o,T=r-o;A=z*T,p=d*z,g=p-(p-z),a=z-g,p=d*T,y=p-(p-T),x=T-y,O=a*x-(A-g*y-a*y-g*x),L=G*B,p=d*G,g=p-(p-G),a=G-g,p=d*B,y=p-(p-B),x=B-y,$=a*x-(L-g*y-a*y-g*x),b=O-$,c=O-b,k[0]=O-(b+c)+(c-$),v=A+b,c=v-A,S=A-(v-c)+(b-c),b=S-L,c=S-b,k[1]=S-(b+c)+(c-L),M=v+b,c=M-v,k[2]=v-(M-c)+(b-c),k[3]=M;let q=function(t,e){let n=e[0];for(let r=1;r<t;r++)n+=e[r];return n}(4,k),C=_*s;if(q>=C||-q>=C)return q;if(c=t-z,l=t-(z+c)+(c-i),c=n-B,u=n-(B+c)+(c-i),c=e-G,h=e-(G+c)+(c-o),c=r-T,f=r-(T+c)+(c-o),0===l&&0===h&&0===u&&0===f)return q;if(C=w*s+m*Math.abs(q),q+=z*f+T*l-(G*u+B*h),q>=C||-q>=C)return q;A=l*T,p=d*l,g=p-(p-l),a=l-g,p=d*T,y=p-(p-T),x=T-y,O=a*x-(A-g*y-a*y-g*x),L=h*B,p=d*h,g=p-(p-h),a=h-g,p=d*B,y=p-(p-B),x=B-y,$=a*x-(L-g*y-a*y-g*x),b=O-$,c=O-b,N[0]=O-(b+c)+(c-$),v=A+b,c=v-A,S=A-(v-c)+(b-c),b=S-L,c=S-b,N[1]=S-(b+c)+(c-L),M=v+b,c=M-v,N[2]=v-(M-c)+(b-c),N[3]=M;const F=E(4,k,4,N,R);A=z*f,p=d*z,g=p-(p-z),a=z-g,p=d*f,y=p-(p-f),x=f-y,O=a*x-(A-g*y-a*y-g*x),L=G*u,p=d*G,g=p-(p-G),a=G-g,p=d*u,y=p-(p-u),x=u-y,$=a*x-(L-g*y-a*y-g*x),b=O-$,c=O-b,N[0]=O-(b+c)+(c-$),v=A+b,c=v-A,S=A-(v-c)+(b-c),b=S-L,c=S-b,N[1]=S-(b+c)+(c-L),M=v+b,c=M-v,N[2]=v-(M-c)+(b-c),N[3]=M;const j=E(F,R,4,N,I);A=l*f,p=d*l,g=p-(p-l),a=l-g,p=d*f,y=p-(p-f),x=f-y,O=a*x-(A-g*y-a*y-g*x),L=h*u,p=d*h,g=p-(p-h),a=h-g,p=d*u,y=p-(p-u),x=u-y,$=a*x-(L-g*y-a*y-g*x),b=O-$,c=O-b,N[0]=O-(b+c)+(c-$),v=A+b,c=v-A,S=A-(v-c)+(b-c),b=S-L,c=S-b,N[1]=S-(b+c)+(c-L),M=v+b,c=M-v,N[2]=v-(M-c)+(b-c),N[3]=M;const U=E(j,I,4,N,P);return P[U-1]}(t,e,n,r,i,o,u)}const O=(t,e)=>t.x*e.y-t.y*e.x,L=(t,e)=>t.x*e.x+t.y*e.y,$=(t,e,n)=>{const r=A(t.x,t.y,e.x,e.y,n.x,n.y);return r>0?-1:r<0?1:0},M=t=>Math.sqrt(L(t,t)),z=(t,e,n)=>{const r={x:e.x-t.x,y:e.y-t.y},i={x:n.x-t.x,y:n.y-t.y};return O(i,r)/M(i)/M(r)},B=(t,e,n)=>{const r={x:e.x-t.x,y:e.y-t.y},i={x:n.x-t.x,y:n.y-t.y};return L(i,r)/M(i)/M(r)},G=(t,e,n)=>0===e.y?null:{x:t.x+e.x/e.y*(n-t.y),y:n},T=(t,e,n)=>0===e.x?null:{x:n,y:t.y+e.y/e.x*(n-t.x)};class q{static compare(t,e){const n=q.comparePoints(t.point,e.point);return 0!==n?n:(t.point!==e.point&&t.link(e),t.isLeft!==e.isLeft?t.isLeft?1:-1:F.compare(t.segment,e.segment))}static comparePoints(t,e){return t.x<e.x?-1:t.x>e.x?1:t.y<e.y?-1:t.y>e.y?1:0}constructor(t,e){void 0===t.events?t.events=[this]:t.events.push(this),this.point=t,this.isLeft=e}link(t){if(t.point===this.point)throw new Error("Tried to link already linked events");const e=t.point.events;for(let t=0,n=e.length;t<n;t++){const n=e[t];this.point.events.push(n),n.point=this.point}this.checkForConsuming()}checkForConsuming(){const t=this.point.events.length;for(let e=0;e<t;e++){const n=this.point.events[e];if(void 0===n.segment.consumedBy)for(let r=e+1;r<t;r++){const t=this.point.events[r];void 0===t.consumedBy&&(n.otherSE.point.events===t.otherSE.point.events&&n.segment.consume(t.segment))}}}getAvailableLinkedEvents(){const t=[];for(let e=0,n=this.point.events.length;e<n;e++){const n=this.point.events[e];n!==this&&!n.segment.ringOut&&n.segment.isInResult()&&t.push(n)}return t}getLeftmostComparator(t){const e=new Map,n=n=>{const r=n.otherSE;e.set(n,{sine:z(this.point,t.point,r.point),cosine:B(this.point,t.point,r.point)})};return(t,r)=>{e.has(t)||n(t),e.has(r)||n(r);const{sine:i,cosine:o}=e.get(t),{sine:s,cosine:l}=e.get(r);return i>=0&&s>=0?o<l?1:o>l?-1:0:i<0&&s<0?o<l?-1:o>l?1:0:s<i?-1:s>i?1:0}}}let C=0;class F{static compare(t,e){const n=t.leftSE.point.x,r=e.leftSE.point.x,i=t.rightSE.point.x,o=e.rightSE.point.x;if(o<n)return 1;if(i<r)return-1;const s=t.leftSE.point.y,l=e.leftSE.point.y,h=t.rightSE.point.y,u=e.rightSE.point.y;if(n<r){if(l<s&&l<h)return 1;if(l>s&&l>h)return-1;const n=t.comparePoint(e.leftSE.point);if(n<0)return 1;if(n>0)return-1;const r=e.comparePoint(t.rightSE.point);return 0!==r?r:-1}if(n>r){if(s<l&&s<u)return-1;if(s>l&&s>u)return 1;const n=e.comparePoint(t.leftSE.point);if(0!==n)return n;const r=t.comparePoint(e.rightSE.point);return r<0?1:r>0?-1:1}if(s<l)return-1;if(s>l)return 1;if(i<o){const n=e.comparePoint(t.rightSE.point);if(0!==n)return n}if(i>o){const n=t.comparePoint(e.rightSE.point);if(n<0)return 1;if(n>0)return-1}if(i!==o){const t=h-s,e=i-n,f=u-l,c=o-r;if(t>e&&f<c)return 1;if(t<e&&f>c)return-1}return i>o?1:i<o||h<u?-1:h>u?1:t.id<e.id?-1:t.id>e.id?1:0}constructor(t,e,n,r){this.id=++C,this.leftSE=t,t.segment=this,t.otherSE=e,this.rightSE=e,e.segment=this,e.otherSE=t,this.rings=n,this.windings=r}static fromRing(t,e,n){let r,i,o;const s=q.comparePoints(t,e);if(s<0)r=t,i=e,o=1;else{if(!(s>0))throw new Error(`Tried to create degenerate segment at [${t.x}, ${t.y}]`);r=e,i=t,o=-1}const l=new q(r,!0),h=new q(i,!1);return new F(l,h,[n],[o])}replaceRightSE(t){this.rightSE=t,this.rightSE.segment=this,this.rightSE.otherSE=this.leftSE,this.leftSE.otherSE=this.rightSE}bbox(){const t=this.leftSE.point.y,e=this.rightSE.point.y;return{ll:{x:this.leftSE.point.x,y:t<e?t:e},ur:{x:this.rightSE.point.x,y:t>e?t:e}}}vector(){return{x:this.rightSE.point.x-this.leftSE.point.x,y:this.rightSE.point.y-this.leftSE.point.y}}isAnEndpoint(t){return t.x===this.leftSE.point.x&&t.y===this.leftSE.point.y||t.x===this.rightSE.point.x&&t.y===this.rightSE.point.y}comparePoint(t){if(this.isAnEndpoint(t))return 0;const e=this.leftSE.point,n=this.rightSE.point,r=this.vector();if(e.x===n.x)return t.x===e.x?0:t.x<e.x?1:-1;const i=(t.y-e.y)/r.y,o=e.x+i*r.x;if(t.x===o)return 0;const s=(t.x-e.x)/r.x,l=e.y+s*r.y;return t.y===l?0:t.y<l?-1:1}getIntersection(t){const e=this.bbox(),n=t.bbox(),r=p(e,n);if(null===r)return null;const i=this.leftSE.point,o=this.rightSE.point,s=t.leftSE.point,l=t.rightSE.point,h=c(e,s)&&0===this.comparePoint(s),u=c(n,i)&&0===t.comparePoint(i),f=c(e,l)&&0===this.comparePoint(l),g=c(n,o)&&0===t.comparePoint(o);if(u&&h)return g&&!f?o:!g&&f?l:null;if(u)return f&&i.x===l.x&&i.y===l.y?null:i;if(h)return g&&o.x===s.x&&o.y===s.y?null:s;if(g&&f)return null;if(g)return o;if(f)return l;const a=((t,e,n,r)=>{if(0===e.x)return T(n,r,t.x);if(0===r.x)return T(t,e,n.x);if(0===e.y)return G(n,r,t.y);if(0===r.y)return G(t,e,n.y);const i=O(e,r);if(0==i)return null;const o={x:n.x-t.x,y:n.y-t.y},s=O(o,e)/i,l=O(o,r)/i;return{x:(t.x+l*e.x+(n.x+s*r.x))/2,y:(t.y+l*e.y+(n.y+s*r.y))/2}})(i,this.vector(),s,t.vector());return null===a?null:c(r,a)?b.round(a.x,a.y):null}split(t){const e=[],n=void 0!==t.events,r=new q(t,!0),i=new q(t,!1),o=this.rightSE;this.replaceRightSE(i),e.push(i),e.push(r);const s=new F(r,o,this.rings.slice(),this.windings.slice());return q.comparePoints(s.leftSE.point,s.rightSE.point)>0&&s.swapEvents(),q.comparePoints(this.leftSE.point,this.rightSE.point)>0&&this.swapEvents(),n&&(r.checkForConsuming(),i.checkForConsuming()),e}swapEvents(){const t=this.rightSE;this.rightSE=this.leftSE,this.leftSE=t,this.leftSE.isLeft=!0,this.rightSE.isLeft=!1;for(let t=0,e=this.windings.length;t<e;t++)this.windings[t]*=-1}consume(t){let e=this,n=t;for(;e.consumedBy;)e=e.consumedBy;for(;n.consumedBy;)n=n.consumedBy;const r=F.compare(e,n);if(0!==r){if(r>0){const t=e;e=n,n=t}if(e.prev===n){const t=e;e=n,n=t}for(let t=0,r=n.rings.length;t<r;t++){const r=n.rings[t],i=n.windings[t],o=e.rings.indexOf(r);-1===o?(e.rings.push(r),e.windings.push(i)):e.windings[o]+=i}n.rings=null,n.windings=null,n.consumedBy=e,n.leftSE.consumedBy=e.leftSE,n.rightSE.consumedBy=e.rightSE}}prevInResult(){return void 0!==this._prevInResult||(this.prev?this.prev.isInResult()?this._prevInResult=this.prev:this._prevInResult=this.prev.prevInResult():this._prevInResult=null),this._prevInResult}beforeState(){if(void 0!==this._beforeState)return this._beforeState;if(this.prev){const t=this.prev.consumedBy||this.prev;this._beforeState=t.afterState()}else this._beforeState={rings:[],windings:[],multiPolys:[]};return this._beforeState}afterState(){if(void 0!==this._afterState)return this._afterState;const t=this.beforeState();this._afterState={rings:t.rings.slice(0),windings:t.windings.slice(0),multiPolys:[]};const e=this._afterState.rings,n=this._afterState.windings,r=this._afterState.multiPolys;for(let t=0,r=this.rings.length;t<r;t++){const r=this.rings[t],i=this.windings[t],o=e.indexOf(r);-1===o?(e.push(r),n.push(i)):n[o]+=i}const i=[],o=[];for(let t=0,r=e.length;t<r;t++){if(0===n[t])continue;const r=e[t],s=r.poly;if(-1===o.indexOf(s))if(r.isExterior)i.push(s);else{-1===o.indexOf(s)&&o.push(s);const t=i.indexOf(r.poly);-1!==t&&i.splice(t,1)}}for(let t=0,e=i.length;t<e;t++){const e=i[t].multiPoly;-1===r.indexOf(e)&&r.push(e)}return this._afterState}isInResult(){if(this.consumedBy)return!1;if(void 0!==this._isInResult)return this._isInResult;const t=this.beforeState().multiPolys,e=this.afterState().multiPolys;switch(H.type){case"union":{const n=0===t.length,r=0===e.length;this._isInResult=n!==r;break}case"intersection":{let n,r;t.length<e.length?(n=t.length,r=e.length):(n=e.length,r=t.length),this._isInResult=r===H.numMultiPolys&&n<r;break}case"xor":{const n=Math.abs(t.length-e.length);this._isInResult=n%2==1;break}case"difference":{const n=t=>1===t.length&&t[0].isSubject;this._isInResult=n(t)!==n(e);break}default:throw new Error(`Unrecognized operation type found ${H.type}`)}return this._isInResult}}class j{constructor(t,e,n){if(!Array.isArray(t)||0===t.length)throw new Error("Input geometry is not a valid Polygon or MultiPolygon");if(this.poly=e,this.isExterior=n,this.segments=[],"number"!=typeof t[0][0]||"number"!=typeof t[0][1])throw new Error("Input geometry is not a valid Polygon or MultiPolygon");const r=b.round(t[0][0],t[0][1]);this.bbox={ll:{x:r.x,y:r.y},ur:{x:r.x,y:r.y}};let i=r;for(let e=1,n=t.length;e<n;e++){if("number"!=typeof t[e][0]||"number"!=typeof t[e][1])throw new Error("Input geometry is not a valid Polygon or MultiPolygon");let n=b.round(t[e][0],t[e][1]);n.x===i.x&&n.y===i.y||(this.segments.push(F.fromRing(i,n,this)),n.x<this.bbox.ll.x&&(this.bbox.ll.x=n.x),n.y<this.bbox.ll.y&&(this.bbox.ll.y=n.y),n.x>this.bbox.ur.x&&(this.bbox.ur.x=n.x),n.y>this.bbox.ur.y&&(this.bbox.ur.y=n.y),i=n)}r.x===i.x&&r.y===i.y||this.segments.push(F.fromRing(i,r,this))}getSweepEvents(){const t=[];for(let e=0,n=this.segments.length;e<n;e++){const n=this.segments[e];t.push(n.leftSE),t.push(n.rightSE)}return t}}class U{constructor(t,e){if(!Array.isArray(t))throw new Error("Input geometry is not a valid Polygon or MultiPolygon");this.exteriorRing=new j(t[0],this,!0),this.bbox={ll:{x:this.exteriorRing.bbox.ll.x,y:this.exteriorRing.bbox.ll.y},ur:{x:this.exteriorRing.bbox.ur.x,y:this.exteriorRing.bbox.ur.y}},this.interiorRings=[];for(let e=1,n=t.length;e<n;e++){const n=new j(t[e],this,!1);n.bbox.ll.x<this.bbox.ll.x&&(this.bbox.ll.x=n.bbox.ll.x),n.bbox.ll.y<this.bbox.ll.y&&(this.bbox.ll.y=n.bbox.ll.y),n.bbox.ur.x>this.bbox.ur.x&&(this.bbox.ur.x=n.bbox.ur.x),n.bbox.ur.y>this.bbox.ur.y&&(this.bbox.ur.y=n.bbox.ur.y),this.interiorRings.push(n)}this.multiPoly=e}getSweepEvents(){const t=this.exteriorRing.getSweepEvents();for(let e=0,n=this.interiorRings.length;e<n;e++){const n=this.interiorRings[e].getSweepEvents();for(let e=0,r=n.length;e<r;e++)t.push(n[e])}return t}}class Y{constructor(t,e){if(!Array.isArray(t))throw new Error("Input geometry is not a valid Polygon or MultiPolygon");try{"number"==typeof t[0][0][0]&&(t=[t])}catch(t){}this.polys=[],this.bbox={ll:{x:Number.POSITIVE_INFINITY,y:Number.POSITIVE_INFINITY},ur:{x:Number.NEGATIVE_INFINITY,y:Number.NEGATIVE_INFINITY}};for(let e=0,n=t.length;e<n;e++){const n=new U(t[e],this);n.bbox.ll.x<this.bbox.ll.x&&(this.bbox.ll.x=n.bbox.ll.x),n.bbox.ll.y<this.bbox.ll.y&&(this.bbox.ll.y=n.bbox.ll.y),n.bbox.ur.x>this.bbox.ur.x&&(this.bbox.ur.x=n.bbox.ur.x),n.bbox.ur.y>this.bbox.ur.y&&(this.bbox.ur.y=n.bbox.ur.y),this.polys.push(n)}this.isSubject=e}getSweepEvents(){const t=[];for(let e=0,n=this.polys.length;e<n;e++){const n=this.polys[e].getSweepEvents();for(let e=0,r=n.length;e<r;e++)t.push(n[e])}return t}}class V{static factory(t){const e=[];for(let n=0,r=t.length;n<r;n++){const r=t[n];if(!r.isInResult()||r.ringOut)continue;let i=null,o=r.leftSE,s=r.rightSE;const l=[o],h=o.point,u=[];for(;i=o,o=s,l.push(o),o.point!==h;)for(;;){const t=o.getAvailableLinkedEvents();if(0===t.length){const t=l[0].point,e=l[l.length-1].point;throw new Error(`Unable to complete output ring starting at [${t.x}, ${t.y}]. Last matching segment found ends at [${e.x}, ${e.y}].`)}if(1===t.length){s=t[0].otherSE;break}let n=null;for(let t=0,e=u.length;t<e;t++)if(u[t].point===o.point){n=t;break}if(null!==n){const t=u.splice(n)[0],r=l.splice(t.index);r.unshift(r[0].otherSE),e.push(new V(r.reverse()));continue}u.push({index:l.length,point:o.point});const r=o.getLeftmostComparator(i);s=t.sort(r)[0].otherSE;break}e.push(new V(l))}return e}constructor(t){this.events=t;for(let e=0,n=t.length;e<n;e++)t[e].segment.ringOut=this;this.poly=null}getGeom(){let t=this.events[0].point;const e=[t];for(let n=1,r=this.events.length-1;n<r;n++){const r=this.events[n].point,i=this.events[n+1].point;0!==$(r,t,i)&&(e.push(r),t=r)}if(1===e.length)return null;const n=e[0],r=e[1];0===$(n,t,r)&&e.shift(),e.push(e[0]);const i=this.isExteriorRing()?1:-1,o=this.isExteriorRing()?0:e.length-1,s=this.isExteriorRing()?e.length:-1,l=[];for(let t=o;t!=s;t+=i)l.push([e[t].x,e[t].y]);return l}isExteriorRing(){if(void 0===this._isExteriorRing){const t=this.enclosingRing();this._isExteriorRing=!t||!t.isExteriorRing()}return this._isExteriorRing}enclosingRing(){return void 0===this._enclosingRing&&(this._enclosingRing=this._calcEnclosingRing()),this._enclosingRing}_calcEnclosingRing(){let t=this.events[0];for(let e=1,n=this.events.length;e<n;e++){const n=this.events[e];q.compare(t,n)>0&&(t=n)}let e=t.segment.prevInResult(),n=e?e.prevInResult():null;for(;;){if(!e)return null;if(!n)return e.ringOut;if(n.ringOut!==e.ringOut)return n.ringOut.enclosingRing()!==e.ringOut?e.ringOut:e.ringOut.enclosingRing();e=n.prevInResult(),n=e?e.prevInResult():null}}}class X{constructor(t){this.exteriorRing=t,t.poly=this,this.interiorRings=[]}addInterior(t){this.interiorRings.push(t),t.poly=this}getGeom(){const t=[this.exteriorRing.getGeom()];if(null===t[0])return null;for(let e=0,n=this.interiorRings.length;e<n;e++){const n=this.interiorRings[e].getGeom();null!==n&&t.push(n)}return t}}class Q{constructor(t){this.rings=t,this.polys=this._composePolys(t)}getGeom(){const t=[];for(let e=0,n=this.polys.length;e<n;e++){const n=this.polys[e].getGeom();null!==n&&t.push(n)}return t}_composePolys(t){const e=[];for(let n=0,r=t.length;n<r;n++){const r=t[n];if(!r.poly)if(r.isExteriorRing())e.push(new X(r));else{const t=r.enclosingRing();t.poly||e.push(new X(t)),t.poly.addInterior(r)}}return e}}class W{constructor(t){let e=arguments.length>1&&void 0!==arguments[1]?arguments[1]:F.compare;this.queue=t,this.tree=new l(e),this.segments=[]}process(t){const e=t.segment,n=[];if(t.consumedBy)return t.isLeft?this.queue.remove(t.otherSE):this.tree.remove(e),n;const r=t.isLeft?this.tree.add(e):this.tree.find(e);if(!r)throw new Error(`Unable to find segment #${e.id} [${e.leftSE.point.x}, ${e.leftSE.point.y}] -> [${e.rightSE.point.x}, ${e.rightSE.point.y}] in SweepLine tree.`);let i,o,s=r,l=r;for(;void 0===i;)s=this.tree.prev(s),null===s?i=null:void 0===s.key.consumedBy&&(i=s.key);for(;void 0===o;)l=this.tree.next(l),null===l?o=null:void 0===l.key.consumedBy&&(o=l.key);if(t.isLeft){let r=null;if(i){const t=i.getIntersection(e);if(null!==t&&(e.isAnEndpoint(t)||(r=t),!i.isAnEndpoint(t))){const e=this._splitSafely(i,t);for(let t=0,r=e.length;t<r;t++)n.push(e[t])}}let s=null;if(o){const t=o.getIntersection(e);if(null!==t&&(e.isAnEndpoint(t)||(s=t),!o.isAnEndpoint(t))){const e=this._splitSafely(o,t);for(let t=0,r=e.length;t<r;t++)n.push(e[t])}}if(null!==r||null!==s){let t=null;if(null===r)t=s;else if(null===s)t=r;else{t=q.comparePoints(r,s)<=0?r:s}this.queue.remove(e.rightSE),n.push(e.rightSE);const i=e.split(t);for(let t=0,e=i.length;t<e;t++)n.push(i[t])}n.length>0?(this.tree.remove(e),n.push(t)):(this.segments.push(e),e.prev=i)}else{if(i&&o){const t=i.getIntersection(o);if(null!==t){if(!i.isAnEndpoint(t)){const e=this._splitSafely(i,t);for(let t=0,r=e.length;t<r;t++)n.push(e[t])}if(!o.isAnEndpoint(t)){const e=this._splitSafely(o,t);for(let t=0,r=e.length;t<r;t++)n.push(e[t])}}}this.tree.remove(e)}return n}_splitSafely(t,e){this.tree.remove(t);const n=t.rightSE;this.queue.remove(n);const r=t.split(e);return r.push(n),void 0===t.consumedBy&&this.tree.add(t),r}}const Z="undefined"!=typeof process&&process.env.POLYGON_CLIPPING_MAX_QUEUE_SIZE||1e6,D="undefined"!=typeof process&&process.env.POLYGON_CLIPPING_MAX_SWEEPLINE_SEGMENTS||1e6;const H=new class{run(t,e,n){H.type=t,b.reset();const r=[new Y(e,!0)];for(let t=0,e=n.length;t<e;t++)r.push(new Y(n[t],!1));if(H.numMultiPolys=r.length,"difference"===H.type){const t=r[0];let e=1;for(;e<r.length;)null!==p(r[e].bbox,t.bbox)?e++:r.splice(e,1)}if("intersection"===H.type)for(let t=0,e=r.length;t<e;t++){const e=r[t];for(let n=t+1,i=r.length;n<i;n++)if(null===p(e.bbox,r[n].bbox))return[]}const i=new l(q.compare);for(let t=0,e=r.length;t<e;t++){const e=r[t].getSweepEvents();for(let t=0,n=e.length;t<n;t++)if(i.insert(e[t]),i.size>Z)throw new Error("Infinite loop when putting segment endpoints in a priority queue (queue size too big).")}const o=new W(i);let s=i.size,h=i.pop();for(;h;){const t=h.key;if(i.size===s){const e=t.segment;throw new Error(`Unable to pop() ${t.isLeft?"left":"right"} SweepEvent [${t.point.x}, ${t.point.y}] from segment #${e.id} [${e.leftSE.point.x}, ${e.leftSE.point.y}] -> [${e.rightSE.point.x}, ${e.rightSE.point.y}] from queue.`)}if(i.size>Z)throw new Error("Infinite loop when passing sweep line over endpoints (queue size too big).");if(o.segments.length>D)throw new Error("Infinite loop when passing sweep line over endpoints (too many sweep line segments).");const e=o.process(t);for(let t=0,n=e.length;t<n;t++){const n=e[t];void 0===n.consumedBy&&i.insert(n)}s=i.size,h=i.pop()}b.reset();const u=V.factory(o.segments);return new Q(u).getGeom()}};var J={union:function(t){for(var e=arguments.length,n=new Array(e>1?e-1:0),r=1;r<e;r++)n[r-1]=arguments[r];return H.run("union",t,n)},intersection:function(t){for(var e=arguments.length,n=new Array(e>1?e-1:0),r=1;r<e;r++)n[r-1]=arguments[r];return H.run("intersection",t,n)},xor:function(t){for(var e=arguments.length,n=new Array(e>1?e-1:0),r=1;r<e;r++)n[r-1]=arguments[r];return H.run("xor",t,n)},difference:function(t){for(var e=arguments.length,n=new Array(e>1?e-1:0),r=1;r<e;r++)n[r-1]=arguments[r];return H.run("difference",t,n)}};return J}));
+
+
+</script>
+<script>
+/* =========================================================================
+   CINEMAP v3.0 — ARCHITECTURE
+   - Camera Engine     : keyframes, interpolation, preview, capture
+   - Globe Engine       : projection (globe / mercator)
+   - Style Engine        : MapTiler style switching, live, overlay-safe
+   - Overlay Engine (générique) : modèle de données + moteur générique
+       - Country Shape Engine : frontières exactes (lazy-load par pays)
+       - Point Engine          : points (dot / circle / pin)
+       - Text Engine           : textes éditables
+       - Image Engine          : images géoréférencées (image source)
+   - Tool Engine          : modes d'ajout (+Pays/+Point/+Texte/+Image)
+   - Export Engine        : capture vidéo MP4/WebM (canvas.captureStream)
+   ========================================================================= */
+
+const API_KEY_PRESET = '06HKMOKTruPFJKSxuFxX';
+
+// Guides de cadrage (croix centrale + safe margins) : toujours affichés (DOM/CSS), jamais capturés par l'export
+
+// ─── ÉTAT GLOBAL ────────────────────────────────────────────────────────────
+let map = null;
+let keyframes = [];
+let isRecording = false;
+let cancelRequested = false;
+let mediaRecorder = null;
+let recordedChunks = [];
+let currentApiKey = '';
+let searchDebounceTimer = null;
+let lastSearchResults = [];
+
+let projectionMode = 'flat';   // 'globe' | 'flat' (plat par défaut)
+let currentStyleKey = 'satellite';
+let overlayIdCounter = 1;
+
+// Modèle d'overlays : { countries:[], points:[], texts:[], images:[] }
+let overlays = { countries: [], points: [], texts: [], images: [], shapes: [] };
+// Ordre d'affichage global (index 0 = haut de la liste = rendu au-dessus)
+let overlayOrder = [];
+
+// ─── COUNTRY DATA (light: alpha3:alpha2:EnglishName) ──────────────────────
+// Les frontières elles-mêmes ne sont JAMAIS embarquées ici : elles sont
+// chargées à la demande (lazy-load) — voir Country Shape Engine plus bas.
+const COUNTRY_LIST_RAW = `
+AFG:AF:Afghanistan,ALA:AX:Åland Islands,ALB:AL:Albania,DZA:DZ:Algeria,ASM:AS:American Samoa,AND:AD:Andorra,AGO:AO:Angola,AIA:AI:Anguilla,ATA:AQ:Antarctica,ATG:AG:Antigua and Barbuda,ARG:AR:Argentina,ARM:AM:Armenia,ABW:AW:Aruba,AUS:AU:Australia,AUT:AT:Austria,AZE:AZ:Azerbaijan,BHS:BS:Bahamas,BHR:BH:Bahrain,BGD:BD:Bangladesh,BRB:BB:Barbados,BLR:BY:Belarus,BEL:BE:Belgium,BLZ:BZ:Belize,BEN:BJ:Benin,BMU:BM:Bermuda,BTN:BT:Bhutan,BOL:BO:Bolivia,BIH:BA:Bosnia and Herzegovina,BWA:BW:Botswana,BRA:BR:Brazil,IOT:IO:British Indian Ocean Territory,VGB:VG:British Virgin Islands,BRN:BN:Brunei,BGR:BG:Bulgaria,BFA:BF:Burkina Faso,BDI:BI:Burundi,KHM:KH:Cambodia,CMR:CM:Cameroon,CAN:CA:Canada,CPV:CV:Cape Verde,CYM:KY:Cayman Islands,CAF:CF:Central African Republic,TCD:TD:Chad,CHL:CL:Chile,CHN:CN:China,COL:CO:Colombia,COM:KM:Comoros,COK:CK:Cook Islands,CRI:CR:Costa Rica,CIV:CI:Côte d'Ivoire,HRV:HR:Croatia,CUB:CU:Cuba,CUW:CW:Curaçao,CYP:CY:Cyprus,CZE:CZ:Czechia,DNK:DK:Denmark,DJI:DJ:Djibouti,DMA:DM:Dominica,DOM:DO:Dominican Republic,COD:CD:DR Congo,TLS:TL:East Timor,ECU:EC:Ecuador,EGY:EG:Egypt,SLV:SV:El Salvador,GNQ:GQ:Equatorial Guinea,ERI:ER:Eritrea,EST:EE:Estonia,SWZ:SZ:Eswatini,ETH:ET:Ethiopia,FLK:FK:Falkland Islands,FRO:FO:Faroe Islands,FJI:FJ:Fiji,FIN:FI:Finland,FRA:FR:France,PYF:PF:French Polynesia,ATF:TF:French Southern Territories,GAB:GA:Gabon,GMB:GM:Gambia,GEO:GE:Georgia,DEU:DE:Germany,GHA:GH:Ghana,GIB:GI:Gibraltar,GRC:GR:Greece,GRL:GL:Greenland,GRD:GD:Grenada,GUM:GU:Guam,GTM:GT:Guatemala,GGY:GG:Guernsey,GIN:GN:Guinea,GNB:GW:Guinea-Bissau,GUY:GY:Guyana,HTI:HT:Haiti,HMD:HM:Heard Island and McDonald Islands,HND:HN:Honduras,HKG:HK:Hong Kong,HUN:HU:Hungary,ISL:IS:Iceland,IND:IN:India,IDN:ID:Indonesia,IRN:IR:Iran,IRQ:IQ:Iraq,IRL:IE:Ireland,IMN:IM:Isle of Man,ISR:IL:Israel,ITA:IT:Italy,JAM:JM:Jamaica,JPN:JP:Japan,JEY:JE:Jersey,JOR:JO:Jordan,KAZ:KZ:Kazakhstan,KEN:KE:Kenya,KIR:KI:Kiribati,XKX:XK:Kosovo,KWT:KW:Kuwait,KGZ:KG:Kyrgyzstan,LAO:LA:Laos,LVA:LV:Latvia,LBN:LB:Lebanon,LSO:LS:Lesotho,LBR:LR:Liberia,LBY:LY:Libya,LIE:LI:Liechtenstein,LTU:LT:Lithuania,LUX:LU:Luxembourg,MAC:MO:Macau,MDG:MG:Madagascar,MWI:MW:Malawi,MYS:MY:Malaysia,MDV:MV:Maldives,MLI:ML:Mali,MLT:MT:Malta,MHL:MH:Marshall Islands,MRT:MR:Mauritania,MUS:MU:Mauritius,MEX:MX:Mexico,FSM:FM:Micronesia,MDA:MD:Moldova,MCO:MC:Monaco,MNG:MN:Mongolia,MNE:ME:Montenegro,MSR:MS:Montserrat,MAR:MA:Morocco,MOZ:MZ:Mozambique,MMR:MM:Myanmar,NAM:NA:Namibia,NRU:NR:Nauru,NPL:NP:Nepal,NLD:NL:Netherlands,NCL:NC:New Caledonia,NZL:NZ:New Zealand,NIC:NI:Nicaragua,NER:NE:Niger,NGA:NG:Nigeria,NIU:NU:Niue,NFK:NF:Norfolk Island,PRK:KP:North Korea,MKD:MK:North Macedonia,CYN:--:Northern Cyprus,MNP:MP:Northern Mariana Islands,NOR:NO:Norway,OMN:OM:Oman,PAK:PK:Pakistan,PLW:PW:Palau,PSE:PS:Palestine,PAN:PA:Panama,PNG:PG:Papua New Guinea,PRY:PY:Paraguay,PER:PE:Peru,PHL:PH:Philippines,PCN:PN:Pitcairn Islands,POL:PL:Poland,PRT:PT:Portugal,PRI:PR:Puerto Rico,QAT:QA:Qatar,COG:CG:Republic of the Congo,ROU:RO:Romania,RUS:RU:Russia,RWA:RW:Rwanda,BLM:BL:Saint Barthélemy,SHN:SH:Saint Helena,KNA:KN:Saint Kitts and Nevis,LCA:LC:Saint Lucia,MAF:MF:Saint Martin,SPM:PM:Saint Pierre and Miquelon,VCT:VC:Saint Vincent and the Grenadines,WSM:WS:Samoa,SMR:SM:San Marino,STP:ST:São Tomé and Príncipe,SAU:SA:Saudi Arabia,SEN:SN:Senegal,SRB:RS:Serbia,SYC:SC:Seychelles,SLE:SL:Sierra Leone,SGP:SG:Singapore,SXM:SX:Sint Maarten,SVK:SK:Slovakia,SVN:SI:Slovenia,SLB:SB:Solomon Islands,SOM:SO:Somalia,SOL:--:Somaliland,ZAF:ZA:South Africa,SGS:GS:South Georgia and the South Sandwich Islands,KOR:KR:South Korea,SSD:SS:South Sudan,ESP:ES:Spain,LKA:LK:Sri Lanka,SDN:SD:Sudan,SUR:SR:Suriname,SWE:SE:Sweden,CHE:CH:Switzerland,SYR:SY:Syria,TWN:TW:Taiwan,TJK:TJ:Tajikistan,TZA:TZ:Tanzania,THA:TH:Thailand,TGO:TG:Togo,TON:TO:Tonga,TTO:TT:Trinidad and Tobago,TUN:TN:Tunisia,TUR:TR:Turkey,TKM:TM:Turkmenistan,TCA:TC:Turks and Caicos Islands,TUV:TV:Tuvalu,UMI:UM:U.S. Minor Outlying Islands,VIR:VI:U.S. Virgin Islands,UGA:UG:Uganda,UKR:UA:Ukraine,ARE:AE:United Arab Emirates,GBR:GB:United Kingdom,USA:US:United States,URY:UY:Uruguay,UZB:UZ:Uzbekistan,VUT:VU:Vanuatu,VAT:VA:Vatican City,VEN:VE:Venezuela,VNM:VN:Vietnam,WLF:WF:Wallis and Futuna,ESH:EH:Western Sahara,YEM:YE:Yemen,ZMB:ZM:Zambia,ZWE:ZW:Zimbabwe`;
+const COUNTRY_LIST = COUNTRY_LIST_RAW.trim().split(',').map(s => {
+  const [iso3, iso2, name] = s.split(':');
+  return { iso3, iso2, name };
+});
+
+// Search aliases (lower-case) -> still matched when typing; the displayed name stays the English one above.
+const COUNTRY_ALIASES = {
+  USA:['usa','us','america','united states of america'], GBR:['uk','britain','great britain','england','scotland','wales','northern ireland'],
+  RUS:['russian federation','ussr'], ARE:['uae','emirates'], COD:['drc','democratic republic of the congo','congo kinshasa','zaire'],
+  COG:['congo','congo brazzaville'], CIV:['ivory coast','cote d ivoire'], CZE:['czech republic'], MKD:['macedonia'], SWZ:['swaziland'],
+  MMR:['burma'], TLS:['timor-leste','timor leste'], NLD:['holland'], KOR:['korea','republic of korea'], PRK:['korea'],
+  CPV:['cabo verde'], VAT:['holy see'], PSE:['west bank','gaza'], TUR:['turkiye'], BRN:['brunei darussalam'], FSM:['federated states of micronesia'],
+  USA2:[], MAC:['macao'], FLK:['malvinas','falklands'], BIH:['bosnia'], TTO:['trinidad'], KNA:['st kitts'], LCA:['st lucia'], VCT:['st vincent'],
+  XKX:['kosova'], SOL:['somaliland'], CYN:['turkish republic of northern cyprus','trnc']
+};
+const ALPHA2_TO_3 = {};
+COUNTRY_LIST.forEach(c => { ALPHA2_TO_3[c.iso2] = c.iso3; });
+const stripAccents = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+COUNTRY_LIST.forEach(c => { c.key = stripAccents(c.name); c.aliases = (COUNTRY_ALIASES[c.iso3] || []).map(stripAccents); });
+
+// Single lookup used by the country tool, the group builder and the dropdown.
+// Ranking: exact name > exact alias > name starts with > word starts with > contains > alias contains.
+function rankCountry(c, q) {
+  if (c.key === q) return 0;
+  if (c.aliases.includes(q)) return 1;
+  if (c.key.startsWith(q)) return 2;
+  if (c.key.split(' ').some(w => w.startsWith(q))) return 3;
+  if (c.key.includes(q)) return 4;
+  if (c.aliases.some(a => a.startsWith(q) || a.includes(q))) return 5;
+  return -1;
+}
+function searchCountries(query) {
+  const q = stripAccents(query || '');
+  if (!q) return COUNTRY_LIST.slice(); // empty query = full list (already alphabetical)
+  return COUNTRY_LIST.map(c => ({ c, r: rankCountry(c, q) })).filter(x => x.r >= 0)
+    .sort((a, b) => a.r - b.r || a.c.name.localeCompare(b.c.name)).map(x => x.c);
+}
+function findCountry(token) { const r = searchCountries(token); return r.length ? r[0] : null; }
+
+// ─── EASING ────────────────────────────────────────────────────────────────
+function easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+function easeOut(t) { return t * (2 - t); }
+function linear(t) { return t; }
+
+function easeIn(t) { return t * t; }
+// Easing of a SEGMENT (KF i → KF i+1), chosen in the gap between the two keyframes.
+// "flow" is not a time curve but a spline through the keyframes (see interpolateFlow).
+const EASE_OPTIONS = [['ease-in-out', 'In-out'], ['ease-in', 'Ease in'], ['ease-out', 'Ease out'], ['linear', 'Linear'], ['flow', 'Flow · no stop']];
+function easingFn(name) {
+  return name === 'ease-in-out' ? easeInOut : name === 'ease-in' ? easeIn : name === 'ease-out' ? easeOut : linear;
+}
+
+// ─── INTERPOLATION ─────────────────────────────────────────────────────────
+function lerpAngle(a, b, t) {
+  let diff = b - a;
+  while (diff > 180) diff -= 360;
+  while (diff < -180) diff += 360;
+  return a + diff * t;
+}
+
+let exportCamVw = null; // largeur de référence de la caméra pendant l'export
+function camViewport() {
+  if (exportCamVw) return exportCamVw;
+  const el = document.getElementById('map');
+  return Math.max(el.offsetWidth, el.offsetHeight) || 1000;
+}
+
+function lngLatToWorld(lng, lat) {
+  const s = Math.sin(Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 180);
+  return [lng / 360 + 0.5, 0.5 - 0.25 * Math.log((1 + s) / (1 - s)) / Math.PI];
+}
+function worldToLngLat(x, y) {
+  return [(x - 0.5) * 360, 360 / Math.PI * Math.atan(Math.exp((0.5 - y) * 2 * Math.PI)) - 90];
+}
+
+// Interpolation linéaire (ancien comportement), avec vitesse écran constante pendant le zoom
+function interpolateLinear(kf1, kf2, et) {
+  const zoom = kf1.zoom + (kf2.zoom - kf1.zoom) * et;
+  let f = et;
+  if (Math.abs(kf2.zoom - kf1.zoom) > 1e-6) {
+    const a = Math.pow(2, -kf1.zoom), b = Math.pow(2, -kf2.zoom), c = Math.pow(2, -zoom);
+    f = (a - c) / (a - b);
+  }
+  return {
+    lng: lerpAngle(kf1.lng, kf2.lng, f), lat: kf1.lat + (kf2.lat - kf1.lat) * f, zoom,
+    bearing: lerpAngle(kf1.bearing, kf2.bearing, et), pitch: kf1.pitch + (kf2.pitch - kf1.pitch) * et,
+  };
+}
+
+// Trajectoire "fly" : "Smooth and efficient zooming and panning" (van Wijk & Nuij), le même
+// algorithme que map.flyTo. Zoom et déplacement sont couplés : plus de gros zoom suivi d'un recadrage.
+function interpolateFly(kf1, kf2, et, vw) {
+  const pick = k => ({ lng: k.lng, lat: k.lat, zoom: k.zoom, bearing: k.bearing, pitch: k.pitch });
+  if (et <= 0) return pick(kf1);
+  if (et >= 1) return pick(kf2);
+  const [x0, y0] = lngLatToWorld(kf1.lng, kf1.lat);
+  const [x1, y1] = lngLatToWorld(kf2.lng, kf2.lat);
+  let dx = x1 - x0; dx -= Math.round(dx); // chemin le plus court à travers l'antiméridien
+  const dy = y1 - y0;
+  const u1 = Math.hypot(dx, dy);
+  const w0 = vw / (512 * Math.pow(2, kf1.zoom));
+  const w1 = vw / (512 * Math.pow(2, kf2.zoom));
+  const rho = 1.42, rho2 = rho * rho;
+  let S = NaN, wf, uf;
+  if (u1 > 1e-9) {
+    const r = i => {
+      const b = (w1 * w1 - w0 * w0 + (i ? -1 : 1) * rho2 * rho2 * u1 * u1) / (2 * (i ? w1 : w0) * rho2 * u1);
+      return Math.log(Math.sqrt(b * b + 1) - b);
+    };
+    const r0 = r(0);
+    S = (r(1) - r0) / rho;
+    wf = s => Math.cosh(r0) / Math.cosh(r0 + rho * s);
+    uf = s => w0 * ((Math.cosh(r0) * Math.tanh(r0 + rho * s) - Math.sinh(r0)) / rho2) / u1;
+  }
+  if (!isFinite(S)) { // zoom pur (même position)
+    const k = w1 < w0 ? -1 : 1;
+    S = Math.abs(Math.log(w1 / w0)) / rho;
+    wf = s => Math.exp(k * rho * s);
+    uf = () => 0;
+  }
+  const s = et * S;
+  const zoom = Math.log2(vw / (512 * w0 * wf(s)));
+  const f = uf(s);
+  const [lng0, lat] = worldToLngLat(x0 + dx * f, y0 + dy * f);
+  const lng = ((((lng0 + 180) % 360) + 360) % 360) - 180;
+  return { lng, lat, zoom, bearing: lerpAngle(kf1.bearing, kf2.bearing, et), pitch: kf1.pitch + (kf2.pitch - kf1.pitch) * et };
+}
+
+// ── FLOW : trajectoire lissée qui traverse les keyframes SANS s'arrêter ────────────────────────
+// Spline d'Hermite cubique (C1 : la vitesse est continue aux keyframes) sur [x, y, zoom, bearing, pitch].
+// Tangente d'un keyframe = différence centrée pondérée par les durées, bornée (Fritsch–Carlson : pas de
+// dépassement) et nulle si la direction s'inverse. Un keyframe de début/fin, ou voisin d'un segment qui
+// n'est pas "flow", reste un point de repos (tangente 0) : la caméra n'y fait que démarrer/finir en douceur.
+function flowChain() {
+  const P = []; let px = 0, py = 0, pb = 0, rawX = 0, rawB = 0;
+  keyframes.forEach((k, i) => {
+    const [x, y] = lngLatToWorld(k.lng, k.lat);
+    if (i === 0) { px = x; rawX = x; pb = k.bearing; rawB = k.bearing; }
+    else {
+      let dx = x - rawX; dx -= Math.round(dx); px += dx; rawX = x;           // chemin le plus court (antiméridien)
+      let db = k.bearing - rawB; while (db > 180) db -= 360; while (db < -180) db += 360; pb += db; rawB = k.bearing;
+    }
+    P.push([px, y, k.zoom, pb, k.pitch]);
+  });
+  return P;
+}
+function flowTangent(P, k, c) {
+  const n = P.length;
+  if (k <= 0 || k >= n - 1) return 0;
+  if (keyframes[k - 1].ease !== 'flow' || keyframes[k].ease !== 'flow') return 0;
+  const sp = (P[k][c] - P[k - 1][c]) / segDur(k - 1), sn = (P[k + 1][c] - P[k][c]) / segDur(k);
+  if (sp * sn <= 0) return 0;
+  const central = (P[k + 1][c] - P[k - 1][c]) / (segDur(k - 1) + segDur(k));
+  return Math.sign(central) * Math.min(Math.abs(central), 3 * Math.min(Math.abs(sp), Math.abs(sn)));
+}
+function interpolateFlow(i, t) {
+  const P = flowChain(), d = segDur(i);
+  const t2 = t * t, t3 = t2 * t;
+  const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+  const v = [];
+  for (let c = 0; c < 5; c++) {
+    v.push(h00 * P[i][c] + h10 * d * flowTangent(P, i, c) + h01 * P[i + 1][c] + h11 * d * flowTangent(P, i + 1, c));
+  }
+  const [lng0, lat] = worldToLngLat(v[0], Math.min(0.9999, Math.max(0.0001, v[1])));
+  const lng = ((((lng0 + 180) % 360) + 360) % 360) - 180;
+  return { lng, lat, zoom: Math.max(0, v[2]), bearing: v[3], pitch: Math.min(85, Math.max(0, v[4])) };
+}
+
+function interpolateSeg(i, t) {
+  const kf1 = keyframes[i], kf2 = keyframes[i + 1];
+  if (kf1.ease === 'flow') return interpolateFlow(i, t);
+  const et = easingFn(kf1.ease || 'ease-in-out')(t);
+  const mode = (document.getElementById('path-select') || {}).value;
+  return mode === 'linear' ? interpolateLinear(kf1, kf2, et) : interpolateFly(kf1, kf2, et, camViewport());
+}
+
+// Durée (s) du trajet KF i → KF i+1
+function segDur(i) { return Math.max(0.2, parseFloat(keyframes[i].dur) || 4); }
+function totalSeconds() {
+  let t = 0;
+  for (let i = 0; i < keyframes.length - 1; i++) t += segDur(i);
+  return t;
+}
+function setSegEase(i, v) { if (keyframes[i]) keyframes[i].ease = v; }
+function setSegDuration(i, v) {
+  keyframes[i].dur = Math.min(60, Math.max(0.2, parseFloat(v) || 4));
+  renderKFList();
+}
+
+// p ∈ [0,1] sur la durée TOTALE ; chaque segment a sa propre durée
+function stateAtProgress(p) {
+  const n = keyframes.length - 1;
+  let t = Math.min(Math.max(p, 0), 1) * totalSeconds();
+  for (let i = 0; i < n; i++) {
+    const d = segDur(i);
+    if (t <= d || i === n - 1) return interpolateSeg(i, Math.min(t / d, 1));
+    t -= d;
+  }
+}
+
+// ─── UTILITAIRES PARTAGÉS ───────────────────────────────────────────────────
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+const HINT_ICONS = { '⚠': 'triangle-alert', '✓': 'check', '🌍': 'globe', '📍': 'map-pin', '🔤': 'type', '🖼': 'image', '⬠': 'pentagon', '⧉': 'group', '📂': 'folder-open' };
+function flashHint(msg) {
+  const el = document.getElementById('map-hint');
+  if (!el) return;
+  msg = String(msg);
+  const g = [...msg][0];
+  if (HINT_ICONS[g]) el.innerHTML = icon(HINT_ICONS[g]) + escapeHtml(msg.slice(g.length).trim());
+  else el.textContent = msg;
+}
+
+function emptyFC() { return { type: 'FeatureCollection', features: [] }; }
+
+// =========================================================================
+// GLOBE ENGINE — projection globe / mercator, transitions compatibles
+// avec les keyframes (la caméra — center/zoom/bearing/pitch — est
+// indépendante de la projection, donc flyTo/jumpTo fonctionnent à l'identique)
+// =========================================================================
+const GlobeEngine = {
+  setMode(mode) {
+    projectionMode = mode;
+    this.apply();
+  },
+  apply() {
+    if (!map || typeof map.setProjection !== 'function') return;
+    try { map.setProjection({ type: (projectionMode === 'flat' || TerrainEngine.enabled) ? 'mercator' : 'globe' }); }
+    catch (e) { console.warn('[CineMap] setProjection a échoué:', e); }
+  }
+};
+
+// =========================================================================
+// STYLE ENGINE — getMapStyle(styleName, apiKey) + changement de style live
+// =========================================================================
+const MAP_STYLES = {
+  // Satellite reste un style raster "fait main" (couleurs cinématiques,
+  // identique au comportement d'origine) — le plus sûr/stable.
+  satellite: { label: 'Satellite' },
+  hybrid:    { label: 'Hybrid',  vectorId: 'hybrid' },
+  streets:   { label: 'Streets', vectorId: 'streets-v2' },
+  basic:     { label: 'Basic',   vectorId: 'basic-v2' },
+  bright:    { label: 'Bright',  vectorId: 'bright-v2' },
+  topo:      { label: 'Topo',    vectorId: 'topo-v2' },
+  // NB: si "dark" ne charge pas avec votre clé/abonnement MapTiler,
+  // changez simplement `vectorId` ci-dessous (cf. cloud.maptiler.com → vos cartes).
+  dark:      { label: 'Dark',    vectorId: 'dataviz-dark' },
+};
+
+function buildSatelliteStyle(apiKey) {
+  return {
+    version: 8,
+    // glyphs requis pour que les overlays "Texte" (symbol layer) s'affichent
+    // même sur ce style raster fait main (sinon pas de police disponible).
+    glyphs: `https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=${apiKey}`,
+    sources: {
+      satellite: {
+        type: 'raster',
+        tiles: [`https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${apiKey}`],
+        tileSize: 256,
+        attribution: '© MapTiler © Airbus'
+      }
+    },
+    layers: [{
+      id: 'satellite',
+      type: 'raster',
+      source: 'satellite',
+      paint: {
+        'raster-saturation': -0.15,
+        'raster-contrast': -0.05,
+        'raster-brightness-min': 0.05,
+        'raster-brightness-max': 0.92,
+        'raster-hue-rotate': 5,
+      }
+    }]
+  };
+}
+
+function getMapStyle(styleKey, apiKey) {
+  if (styleKey === 'satellite' || !MAP_STYLES[styleKey]) return buildSatelliteStyle(apiKey);
+  const cfg = MAP_STYLES[styleKey];
+  return `https://api.maptiler.com/maps/${cfg.vectorId}/style.json?key=${apiKey}`;
+}
+
+const TerrainEngine = {
+  enabled: false,
+  exaggeration: 1.5,
+  prevProjection: null,
+  DEM: 'cm-dem',
+  HILL: 'cm-hillshade',
+  TILES: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png', // AWS Terrain Tiles (sans clé)
+  set(on) {
+    this.enabled = on;
+    const sel = document.getElementById('projection-select');
+    if (on) {
+      // Le globe ne gère pas le terrain : on passe en Flat le temps du relief, puis on restaure
+      this.prevProjection = projectionMode;
+      projectionMode = 'flat'; sel.value = 'flat'; sel.disabled = true;
+    } else {
+      if (this.prevProjection) projectionMode = this.prevProjection;
+      this.prevProjection = null; sel.value = projectionMode; sel.disabled = false;
+    }
+    GlobeEngine.apply();
+    this.apply();
+    if (on) flashHint('3D on — tilt the map (right-drag / Ctrl+drag) to see the relief');
+  },
+  setExaggeration(v) {
+    this.exaggeration = parseFloat(v) || 1;
+    document.getElementById('terrain-val').textContent = this.exaggeration.toFixed(1) + '×';
+    if (this.enabled && map && map.getSource(this.DEM)) {
+      try { map.setTerrain({ source: this.DEM, exaggeration: this.exaggeration }); } catch (e) { console.warn(e); }
+    }
+  },
+  apply() {
+    if (!map) return;
+    try {
+      if (this.enabled) {
+        if (!map.getSource(this.DEM)) {
+          map.addSource(this.DEM, { type: 'raster-dem', tiles: [this.TILES], encoding: 'terrarium', tileSize: 256, maxzoom: 15, attribution: 'Elevation: Mapzen / AWS Terrain Tiles' });
+        }
+        map.setTerrain({ source: this.DEM, exaggeration: this.exaggeration });
+        this.syncHillshade();
+      } else {
+        if (map.getTerrain()) map.setTerrain(null);
+        if (map.getLayer(this.HILL)) map.removeLayer(this.HILL);
+        if (map.getSource(this.DEM)) map.removeSource(this.DEM);
+      }
+    } catch (e) {
+      console.error('[CineMap] Terrain:', e);
+      flashHint('⚠ 3D terrain failed: ' + (e && e.message ? e.message : e));
+    }
+  },
+  // Ombrage du relief pour les styles vectoriels (le satellite contient déjà l'ombre des montagnes)
+  syncHillshade() {
+    if (map.getLayer(this.HILL)) map.removeLayer(this.HILL);
+    if (currentStyleKey === 'satellite' || currentStyleKey === 'hybrid') return;
+    const first = ((map.getStyle() || {}).layers || []).find(l => l.type === 'symbol' && l.id.indexOf('cm-') !== 0);
+    map.addLayer({
+      id: this.HILL, type: 'hillshade', source: this.DEM,
+      paint: {
+        'hillshade-exaggeration': 0.5,
+        'hillshade-shadow-color': '#000000',
+        'hillshade-highlight-color': currentStyleKey === 'dark' ? '#4a4a4a' : '#ffffff',
+        'hillshade-accent-color': '#000000',
+      },
+    }, first ? first.id : undefined);
+  }
+};
+
+const LabelEngine = {
+  hidden: false,
+  touched: new Set(), // layers que NOUS avons masqués (pour ne restaurer que ceux-là)
+  set(h) { this.hidden = h; this.apply(); },
+  reset() { this.touched.clear(); this.apply(); }, // après (re)chargement d'un style
+  apply() {
+    if (!map) return;
+    let layers;
+    try { layers = (map.getStyle() || {}).layers || []; } catch (e) { return; }
+    layers.forEach(l => {
+      if (l.type !== 'symbol' || l.id.indexOf('cm-') === 0) return; // garde nos textes/pins
+      const cur = (l.layout && l.layout.visibility) || 'visible';
+      if (this.hidden) {
+        if (cur !== 'none') { map.setLayoutProperty(l.id, 'visibility', 'none'); this.touched.add(l.id); }
+      } else if (this.touched.has(l.id)) {
+        map.setLayoutProperty(l.id, 'visibility', 'visible'); this.touched.delete(l.id);
+      }
+    });
+  }
+};
+
+// Force place/country names to English on every vector style (name:en, then latin, then local name).
+LabelEngine.localize = function () {
+  if (!map) return;
+  let layers;
+  try { layers = (map.getStyle() || {}).layers || []; } catch (e) { return; }
+  const EN = ['coalesce', ['get', 'name:en'], ['get', 'name_en'], ['get', 'name:latin'], ['get', 'name']];
+  layers.forEach(l => {
+    if (l.type !== 'symbol' || l.id.indexOf('cm-') === 0) return;
+    const tf = l.layout && l.layout['text-field'];
+    if (!tf || JSON.stringify(tf).indexOf('name') === -1) return;
+    try { map.setLayoutProperty(l.id, 'text-field', EN); } catch (e) { /* layer without usable text */ }
+  });
+};
+
+const StyleEngine = {
+  switch(styleKey) {
+    currentStyleKey = styleKey;
+    if (!map) return;
+    const camera = {
+      center: map.getCenter(), zoom: map.getZoom(),
+      bearing: map.getBearing(), pitch: map.getPitch()
+    };
+    flashHint('Switching style...');
+    // diff:false = rechargement COMPLET : avec le diff par défaut, MapLibre supprime nos calques cm-* sans émettre
+    // 'style.load' -> rebuildAll() ne tournait jamais et les overlays disparaissaient.
+    map.setStyle(getMapStyle(styleKey, currentApiKey), { diff: false });
+    // Reconstruction automatique des overlays après changement de style
+    // (setStyle() remplace sources/layers internes -> nos layers custom
+    // sont détruits, donc on les recrée une fois le nouveau style chargé).
+    const token = (this._token = (this._token || 0) + 1);
+    map.once('style.load', () => {
+      if (token !== this._token) return; // changement de style plus récent en cours
+      map.jumpTo(camera);
+      try { GlobeEngine.apply(); } catch (e) { console.warn(e); }
+      TerrainEngine.apply();
+      try { OverlayEngine.rebuildAll(); } catch (e) { console.error(e); }
+      try { LabelEngine.reset(); } catch (e) { console.error(e); }
+      try { LabelEngine.localize(); } catch (e) { console.error(e); }
+      flashHint('Navigate → capture views with the button');
+    });
+  }
+};
+
+// =========================================================================
+// COUNTRY SHAPE ENGINE — Natural Earth 1:10m, chargées à la demande
+// Source : Natural-Earth (via johan/world.geo.json), 1 fichier par pays,
+// jamais embarqué dans le HTML -> télécharge uniquement le pays demandé.
+// =========================================================================
+const BOUNDARY_BASE = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries/';
+const countryGeomCache = {};
+
+// Source principale : Natural Earth 1:10m via world-atlas (TopoJSON, 1 fichier ~3.6 Mo, chargé
+// une seule fois à la demande). Repli : ancienne source basse résolution (par pays).
+const ATLAS_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-10m.json';
+const ISO3_NUM = {"IDN":"360","MYS":"458","CHL":"152","BOL":"068","PER":"604","ARG":"032","CYP":"196","IND":"356","CHN":"156","ISR":"376","PSE":"275","LBN":"422","ETH":"231","SSD":"728","SOM":"706","KEN":"404","PAK":"586","MWI":"454","TZA":"834","SYR":"760","FRA":"250","SUR":"740","GUY":"328","KOR":"410","PRK":"408","MAR":"504","ESH":"732","CRI":"188","NIC":"558","COG":"178","COD":"180","BTN":"064","UKR":"804","BLR":"112","NAM":"516","ZAF":"710","MAF":"663","SXM":"534","OMN":"512","UZB":"860","KAZ":"398","TJK":"762","LTU":"440","BRA":"076","URY":"858","MNG":"496","RUS":"643","CZE":"203","DEU":"276","EST":"233","LVA":"428","NOR":"578","SWE":"752","FIN":"246","VNM":"704","KHM":"116","LUX":"442","ARE":"784","BEL":"056","GEO":"268","MKD":"807","ALB":"008","AZE":"031","TUR":"792","ESP":"724","LAO":"418","KGZ":"417","ARM":"051","DNK":"208","LBY":"434","TUN":"788","ROU":"642","HUN":"348","SVK":"703","POL":"616","IRL":"372","GBR":"826","GRC":"300","ZMB":"894","SLE":"694","GIN":"324","LBR":"430","CAF":"140","SDN":"729","DJI":"262","ERI":"232","AUT":"040","IRQ":"368","ITA":"380","CHE":"756","IRN":"364","NLD":"528","LIE":"438","CIV":"384","SRB":"688","MLI":"466","SEN":"686","NGA":"566","BEN":"204","AGO":"024","HRV":"191","SVN":"705","QAT":"634","SAU":"682","BWA":"072","ZWE":"716","BGR":"100","THA":"764","SMR":"674","HTI":"332","DOM":"214","TCD":"148","KWT":"414","SLV":"222","GTM":"320","TLS":"626","BRN":"096","MCO":"492","DZA":"012","MOZ":"508","SWZ":"748","BDI":"108","RWA":"646","MMR":"104","BGD":"050","AND":"020","AFG":"004","MNE":"499","BIH":"070","UGA":"800","CUB":"192","HND":"340","ECU":"218","COL":"170","PRY":"600","PRT":"620","MDA":"498","TKM":"795","JOR":"400","NPL":"524","LSO":"426","CMR":"120","GAB":"266","NER":"562","BFA":"854","TGO":"768","GHA":"288","GNB":"624","GIB":"292","USA":"840","CAN":"124","MEX":"484","BLZ":"084","PAN":"591","VEN":"862","PNG":"598","EGY":"818","YEM":"887","MRT":"478","GNQ":"226","GMB":"270","HKG":"344","VAT":"336","ATA":"010","AUS":"036","GRL":"304","FJI":"242","NZL":"554","NCL":"540","MDG":"450","PHL":"608","LKA":"144","CUW":"531","ABW":"533","BHS":"044","TCA":"796","TWN":"158","JPN":"392","SPM":"666","ISL":"352","PCN":"612","PYF":"258","ATF":"260","SYC":"690","KIR":"296","MHL":"584","TTO":"780","GRD":"308","VCT":"670","BRB":"052","LCA":"662","DMA":"212","UMI":"581","MSR":"500","ATG":"028","KNA":"659","VIR":"850","BLM":"652","PRI":"630","AIA":"660","VGB":"092","JAM":"388","CYM":"136","BMU":"060","HMD":"334","SHN":"654","MUS":"480","COM":"174","STP":"678","CPV":"132","MLT":"470","JEY":"832","GGY":"831","IMN":"833","ALA":"248","FRO":"234","IOT":"086","SGP":"702","NFK":"574","COK":"184","TON":"776","WLF":"876","WSM":"882","SLB":"090","TUV":"798","MDV":"462","NRU":"520","FSM":"583","SGS":"239","FLK":"238","VUT":"548","NIU":"570","ASM":"016","PLW":"585","GUM":"316","MNP":"580","BHR":"048","MAC":"446"};
+// Entities without an ISO numeric code in the atlas: matched by their Natural Earth name instead.
+const ATLAS_NAME_BY_ISO3 = {"XKX":"Kosovo","SOL":"Somaliland","CYN":"N. Cyprus"};
+function atlasGeomFor(topo, iso3) {
+  const geoms = topo.objects.countries.geometries;
+  const num = ISO3_NUM[iso3];
+  if (num) return geoms.find(x => String(x.id) === num) || null;
+  const nm = ATLAS_NAME_BY_ISO3[iso3];
+  return nm ? (geoms.find(x => x.properties && x.properties.name === nm) || null) : null;
+}
+let atlasPromise = null;
+const atlasArcCache = [];
+
+function loadAtlas() {
+  if (!atlasPromise) {
+    atlasPromise = fetch(ATLAS_URL)
+      .then(r => { if (!r.ok) throw new Error('atlas-http-' + r.status); return r.json(); })
+      .catch(e => { atlasPromise = null; throw e; });
+  }
+  return atlasPromise;
+}
+function atlasArc(topo, i) {
+  const k = i < 0 ? ~i : i;
+  let a = atlasArcCache[k];
+  if (!a) {
+    const [sx, sy] = topo.transform.scale, [tx, ty] = topo.transform.translate;
+    let x = 0, y = 0;
+    a = topo.arcs[k].map(p => [(x += p[0]) * sx + tx, (y += p[1]) * sy + ty]);
+    atlasArcCache[k] = a;
+  }
+  return i < 0 ? a.slice().reverse() : a;
+}
+function atlasRing(topo, arcIdx) {
+  const ring = [];
+  arcIdx.forEach((i, n) => { const pts = atlasArc(topo, i); (n ? pts.slice(1) : pts).forEach(p => ring.push(p)); });
+  while (ring.length < 4) ring.push(ring[0]); // anneau valide GeoJSON (îlots minuscules)
+  return ring;
+}
+function atlasFeature(topo, geom) {
+  const coordinates = geom.type === 'Polygon'
+    ? geom.arcs.map(r => atlasRing(topo, r))
+    : geom.arcs.map(poly => poly.map(r => atlasRing(topo, r)));
+  return { type: 'Feature', properties: geom.properties || {}, geometry: { type: geom.type, coordinates } };
+}
+
+async function fetchCountryGeometry(iso3) {
+  if (countryGeomCache[iso3]) return countryGeomCache[iso3];
+  let feature = null;
+  if (ISO3_NUM[iso3] || ATLAS_NAME_BY_ISO3[iso3]) {
+    try {
+      const topo = await loadAtlas();
+      const g = atlasGeomFor(topo, iso3);
+      if (g) feature = atlasFeature(topo, g);
+    } catch (e) { console.warn('[CineMap] Atlas 10m indisponible, repli basse résolution:', e); }
+  }
+  if (!feature) {
+    const res = await fetch(BOUNDARY_BASE + iso3 + '.geo.json');
+    if (!res.ok) throw new Error('boundary-not-found');
+    const gj = await res.json();
+    feature = (gj.type === 'FeatureCollection') ? gj.features[0] : gj;
+  }
+  countryGeomCache[iso3] = feature;
+  return feature;
+}
+
+// Boîte de cadrage : polygone principal + polygones à moins de 15° (chaînage). Les territoires
+// lointains (Guyane, Réunion, Hawaï isolé…) restent dessinés mais ne font pas dézoomer le cadrage.
+// Les longitudes sont recalées pour les formes qui traversent l'antiméridien (Russie, Fidji).
+function bboxOfFeature(feature) {
+  const g = feature.geometry;
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  const boxes = polys.map(p => {
+    const ring = p[0];
+    let off = 0, prev = ring[0][0];
+    let a = prev, c = prev, b = ring[0][1], d = ring[0][1];
+    for (let i = 1; i < ring.length; i++) {
+      const raw = ring[i][0];
+      if (raw - prev > 180) off -= 360; else if (raw - prev < -180) off += 360;
+      prev = raw;
+      const x = raw + off, y = ring[i][1];
+      if (x < a) a = x; if (x > c) c = x; if (y < b) b = y; if (y > d) d = y;
+    }
+    if (off !== 0) { a = -180; c = 180; } // l'anneau fait le tour d'un pôle (Antarctique)
+    return [a, b, c, d];
+  });
+  if (!boxes.length) return [[-180, -85], [180, 85]];
+  const area = bx => (bx[2] - bx[0] + 0.01) * (bx[3] - bx[1] + 0.01);
+  let main = 0;
+  boxes.forEach((bx, i) => { if (area(bx) > area(boxes[main])) main = i; });
+  const refLng = (boxes[main][0] + boxes[main][2]) / 2;
+  const shifted = boxes.map(bx => {
+    const k = Math.round((refLng - (bx[0] + bx[2]) / 2) / 360);
+    return [bx[0] + 360 * k, bx[1], bx[2] + 360 * k, bx[3]];
+  });
+  const GAP = 15;
+  let u = shifted[main].slice();
+  const used = new Set([main]);
+  for (let grew = true; grew;) {
+    grew = false;
+    shifted.forEach((bx, i) => {
+      if (used.has(i)) return;
+      if (bx[0] <= u[2] + GAP && bx[2] >= u[0] - GAP && bx[1] <= u[3] + GAP && bx[3] >= u[1] - GAP) {
+        used.add(i);
+        u = [Math.min(u[0], bx[0]), Math.min(u[1], bx[1]), Math.max(u[2], bx[2]), Math.max(u[3], bx[3])];
+        grew = true;
+      }
+    });
+  }
+  const k = -Math.round(((u[0] + u[2]) / 2) / 360); // recale le centre dans [-180,180]
+  return [[u[0] + 360 * k, u[1]], [u[2] + 360 * k, u[3]]];
+}
+
+function renderCountryOverlay(item) {
+  if (!map) return;
+  const feature = countryGeomCache[item.iso3];
+  if (!feature) return;
+  const srcId = 'cm-country-src-' + item.id;
+  const fillId = 'cm-country-fill-' + item.id;
+  const lineId = 'cm-country-line-' + item.id;
+  if (!map.getSource(srcId)) {
+    map.addSource(srcId, { type: 'geojson', data: feature });
+    map.addLayer({ id: fillId, type: 'fill', source: srcId,
+      paint: { 'fill-color': item.color, 'fill-opacity': item.opacity } });
+    map.addLayer({ id: lineId, type: 'line', source: srcId,
+      paint: { 'line-color': item.borderColor, 'line-width': item.borderWidth } });
+  }
+  map.setPaintProperty(fillId, 'fill-color', item.color);
+  map.setPaintProperty(fillId, 'fill-opacity', item.opacity);
+  map.setPaintProperty(lineId, 'line-color', item.borderColor);
+  map.setPaintProperty(lineId, 'line-width', item.borderWidth);
+  const vis = item.visible ? 'visible' : 'none';
+  map.setLayoutProperty(fillId, 'visibility', vis);
+  map.setLayoutProperty(lineId, 'visibility', vis);
+}
+
+function removeCountryOverlay(id) {
+  if (!map) return;
+  ['cm-country-fill-' + id, 'cm-country-line-' + id].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+  const srcId = 'cm-country-src-' + id;
+  if (map.getSource(srcId)) map.removeSource(srcId);
+}
+
+async function addCountryByISO3(iso3, doFlyTo) {
+  try { await fetchCountryGeometry(iso3); }
+  catch (e) { flashHint('⚠ Border unavailable for this country'); return; }
+  const entry = COUNTRY_LIST.find(c => c.iso3 === iso3);
+  const id = 'co_' + (overlayIdCounter++);
+  const item = {
+    id, type: 'country', visible: true, label: entry ? entry.name : iso3, iso3,
+    color: '#c8f060', opacity: 0.25, borderColor: '#c8f060', borderWidth: 2
+  };
+  overlays.countries.push(item);
+  overlayOrder.unshift({ type: 'country', id });
+  renderCountryOverlay(item);
+  OverlayEngine.applyZOrder();
+  OverlayEngine.renderList();
+  if (doFlyTo && map) map.fitBounds(bboxOfFeature(countryGeomCache[iso3]), { padding: 60, duration: 1200 });
+}
+
+function addCountryByName(name) {
+  if (!(name || '').trim()) return;
+  const entry = findCountry(name);
+  if (!entry) { flashHint('Country not found in list'); return; }
+  addCountryByISO3(entry.iso3, true);
+}
+
+function extractCountryCode(data) {
+  const feats = data.features || [];
+  for (const f of feats) {
+    if (f.properties && f.properties.country_code) return f.properties.country_code;
+    if (f.country_code) return f.country_code;
+  }
+  for (const f of feats) {
+    const ctx = f.context || [];
+    for (const c of ctx) { if (c.country_code) return c.country_code; if (c.short_code) return c.short_code; }
+  }
+  return null;
+}
+
+async function detectAndAddCountry(lng, lat) {
+  if (!currentApiKey) { flashHint('⚠ Enter your API key'); return; }
+  flashHint('Detecting country...');
+  try {
+    const res = await fetch(`https://api.maptiler.com/geocoding/${lng},${lat}.json?key=${currentApiKey}`);
+    const data = await res.json();
+    const a2 = extractCountryCode(data);
+    const a3 = a2 && ALPHA2_TO_3[a2.toUpperCase()];
+    if (!a3) { flashHint('No country found at this location'); return; }
+    addCountryByISO3(a3, false);
+    flashHint('🌍 Click on the map or search for a country');
+  } catch (e) { flashHint('⚠ Error detecting country'); }
+}
+
+// =========================================================================
+// SHAPE ENGINE — formes personnalisées. UN seul type d'overlay ('shape') alimenté par trois
+// sources : groupe de pays (fusion), import GeoJSON/TopoJSON, dessin à la main.
+// =========================================================================
+const SHAPE_COLORS = ['#c8f060', '#60c8f0', '#f08060', '#f0d060', '#c080f0', '#60f0b0'];
+let shapeCounter = 0;
+
+function renderShapeOverlay(item) {
+  if (!map) return;
+  const srcId = 'cm-shape-src-' + item.id, fillId = 'cm-shape-fill-' + item.id, lineId = 'cm-shape-line-' + item.id;
+  if (!map.getSource(srcId)) {
+    map.addSource(srcId, { type: 'geojson', data: item.geojson });
+    map.addLayer({ id: fillId, type: 'fill', source: srcId, paint: { 'fill-color': item.color, 'fill-opacity': item.opacity } });
+    map.addLayer({ id: lineId, type: 'line', source: srcId, layout: { 'line-join': 'round' }, paint: { 'line-color': item.borderColor, 'line-width': item.borderWidth } });
+  }
+  map.setPaintProperty(fillId, 'fill-color', item.color);
+  map.setPaintProperty(fillId, 'fill-opacity', item.opacity);
+  map.setPaintProperty(lineId, 'line-color', item.borderColor);
+  map.setPaintProperty(lineId, 'line-width', item.borderWidth);
+  const vis = item.visible ? 'visible' : 'none';
+  map.setLayoutProperty(fillId, 'visibility', vis);
+  map.setLayoutProperty(lineId, 'visibility', vis);
+}
+
+function removeShapeOverlay(id) {
+  if (!map) return;
+  ['cm-shape-fill-' + id, 'cm-shape-line-' + id].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+  const srcId = 'cm-shape-src-' + id;
+  if (map.getSource(srcId)) map.removeSource(srcId);
+}
+
+function forEachPosition(coords, fn) {
+  if (typeof coords[0] === 'number') fn(coords[0], coords[1]);
+  else for (const c of coords) forEachPosition(c, fn);
+}
+
+// Boîte englobante COMPLÈTE d'une FeatureCollection (gère l'antiméridien)
+function geojsonBBox(fc) {
+  let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+  const xs = [];
+  fc.features.forEach(f => { if (f.geometry) forEachPosition(f.geometry.coordinates, (x, y) => { xs.push(x); if (x < a) a = x; if (x > c) c = x; if (y < b) b = y; if (y > d) d = y; }); });
+  if (!xs.length) return null;
+  if (c - a > 180) {
+    let a2 = Infinity, c2 = -Infinity;
+    for (const x of xs) { const w = x < 0 ? x + 360 : x; if (w < a2) a2 = w; if (w > c2) c2 = w; }
+    if (c2 - a2 < c - a) { a = a2; c = c2; }
+  }
+  return [[a, b], [c, d]];
+}
+
+function addShapeOverlay({ label, geojson, source, members, count, children, style, insertAt }) {
+  const id = 'sh_' + (overlayIdCounter++);
+  const col = SHAPE_COLORS[shapeCounter++ % SHAPE_COLORS.length];
+  const item = { id, type: 'shape', visible: true, label, source, members: members || null, count: count || null, geojson,
+    children: children || null, // group: the original country layers, kept so the group can be undone
+    color: col, opacity: 0.25, borderColor: col, borderWidth: 2, ...(style || {}) };
+  overlays.shapes.push(item);
+  const ref = { type: 'shape', id };
+  if (typeof insertAt === 'number') overlayOrder.splice(Math.min(insertAt, overlayOrder.length), 0, ref);
+  else overlayOrder.unshift(ref);
+  renderShapeOverlay(item);
+  OverlayEngine.applyZOrder();
+  OverlayEngine.renderList();
+  return item;
+}
+
+function fitShape(item) {
+  if (!map) return;
+  // Groupe : cadrage "focus" (ignore les territoires d'outre-mer lointains) ; sinon boîte complète
+  const bb = (item.source === 'group' && item.geojson.features[0]) ? bboxOfFeature(item.geojson.features[0]) : geojsonBBox(item.geojson);
+  if (bb) map.fitBounds(bb, { padding: 60, duration: 1200 });
+}
+
+// =========================================================================
+// POINT ENGINE — points (dot / circle / pin), une seule source partagée
+// (perf + pas de duplication de logique entre items).
+// =========================================================================
+const POINT_SRC = 'cm-points-src';
+const POINT_LAYER_DOT = 'cm-points-dot';
+const POINT_LAYER_PIN = 'cm-points-pin';
+let pinIconReady = false;
+
+function ensurePinIcon() {
+  if (!map) return;
+  if (map.hasImage && map.hasImage('cm-pin-icon')) { pinIconReady = true; return; }
+  const size = 48;
+  const c = document.createElement('canvas'); c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.beginPath();
+  ctx.moveTo(size/2, size-2);
+  ctx.bezierCurveTo(size*0.05, size*0.55, size*0.15, 0, size/2, size*0.32);
+  ctx.bezierCurveTo(size*0.85, 0, size*0.95, size*0.55, size/2, size-2);
+  ctx.closePath();
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  map.addImage('cm-pin-icon', ctx.getImageData(0, 0, size, size), { sdf: true });
+  pinIconReady = true;
+}
+
+function ensurePointLayers() {
+  if (!map) return;
+  if (!map.getSource(POINT_SRC)) map.addSource(POINT_SRC, { type: 'geojson', data: emptyFC() });
+  ensurePinIcon();
+  if (!map.getLayer(POINT_LAYER_DOT)) {
+    map.addLayer({
+      id: POINT_LAYER_DOT, type: 'circle', source: POINT_SRC,
+      filter: ['in', ['get', 'icon'], ['literal', ['dot', 'circle']]],
+      paint: {
+        'circle-radius': ['case', ['==', ['get', 'icon'], 'dot'], ['/', ['get', 'size'], 2], ['get', 'size']],
+        'circle-color': ['get', 'color'],
+        'circle-opacity': ['case', ['==', ['get', 'icon'], 'circle'], 0.25, 1],
+        'circle-stroke-width': ['case', ['==', ['get', 'icon'], 'circle'], 2, 0],
+        'circle-stroke-color': ['get', 'color'],
+      }
+    });
+  }
+  if (!map.getLayer(POINT_LAYER_PIN)) {
+    map.addLayer({
+      id: POINT_LAYER_PIN, type: 'symbol', source: POINT_SRC,
+      filter: ['==', ['get', 'icon'], 'pin'],
+      layout: { 'icon-image': 'cm-pin-icon', 'icon-size': ['/', ['get', 'size'], 24], 'icon-anchor': 'bottom', 'icon-allow-overlap': true },
+      paint: { 'icon-color': ['get', 'color'] }
+    });
+  }
+}
+
+function refreshPointsSource() {
+  if (!map || !map.getSource(POINT_SRC)) return;
+  const items = OverlayEngine.itemsInOrder('point').filter(p => p.visible);
+  map.getSource(POINT_SRC).setData({
+    type: 'FeatureCollection',
+    features: items.map(p => ({ type: 'Feature', id: p.id, properties: p, geometry: { type: 'Point', coordinates: [p.lng, p.lat] } }))
+  });
+}
+
+function addPointOverlay(lng, lat) {
+  ensurePointLayers();
+  const id = 'pt_' + (overlayIdCounter++);
+  const item = { id, type: 'point', visible: true, label: `Point ${overlays.points.length + 1}`, lng, lat, size: 10, icon: 'dot', color: '#c8f060' };
+  overlays.points.push(item);
+  overlayOrder.unshift({ type: 'point', id });
+  refreshPointsSource();
+  OverlayEngine.applyZOrder();
+  OverlayEngine.renderList();
+}
+
+// =========================================================================
+// TEXT ENGINE — textes éditables, une seule source partagée
+// =========================================================================
+const TEXT_SRC = 'cm-texts-src';
+const TEXT_LAYER = 'cm-texts-layer';
+
+function ensureTextLayer() {
+  if (!map) return;
+  if (!map.getSource(TEXT_SRC)) map.addSource(TEXT_SRC, { type: 'geojson', data: emptyFC() });
+  if (!map.getLayer(TEXT_LAYER)) {
+    map.addLayer({
+      id: TEXT_LAYER, type: 'symbol', source: TEXT_SRC,
+      layout: {
+        'text-field': ['get', 'text'],
+        'text-size': ['get', 'fontSize'],
+        'text-anchor': ['get', 'anchor'],
+        'text-rotate': ['get', 'rotation'],
+        'text-allow-overlap': true,
+        'text-font': ['Open Sans Bold'],
+      },
+      paint: {
+        'text-color': ['get', 'color'],
+        'text-opacity': ['get', 'opacity'],
+        'text-halo-color': '#0a0a0b',
+        'text-halo-width': 1,
+      }
+    });
+  }
+}
+
+function refreshTextsSource() {
+  if (!map || !map.getSource(TEXT_SRC)) return;
+  const items = OverlayEngine.itemsInOrder('text').filter(t => t.visible);
+  map.getSource(TEXT_SRC).setData({
+    type: 'FeatureCollection',
+    features: items.map(t => ({ type: 'Feature', id: t.id, properties: t, geometry: { type: 'Point', coordinates: [t.lng, t.lat] } }))
+  });
+}
+
+function addTextOverlay(lng, lat) {
+  ensureTextLayer();
+  const id = 'tx_' + (overlayIdCounter++);
+  const item = {
+    id, type: 'text', visible: true, label: `Text ${overlays.texts.length + 1}`,
+    lng, lat, text: 'New text', fontSize: 20, color: '#ffffff', opacity: 1, anchor: 'center', rotation: 0
+  };
+  overlays.texts.push(item);
+  overlayOrder.unshift({ type: 'text', id });
+  refreshTextsSource();
+  OverlayEngine.applyZOrder();
+  OverlayEngine.renderList();
+  OverlayEngine.openEditor('text', id); // édition immédiate du texte saisi
+}
+
+// =========================================================================
+// IMAGE ENGINE — images géoréférencées via une 'image' source MapLibre
+// (rendu WebGL natif -> apparaît dans l'export vidéo, pas de DOM).
+// =========================================================================
+function metersPerDegLng(lat) { return 111320 * Math.cos(lat * Math.PI / 180); }
+const METERS_PER_DEG_LAT = 110540;
+
+function computeImageCorners(lng, lat, widthM, heightM, rotationDeg) {
+  const rad = rotationDeg * Math.PI / 180;
+  const hw = widthM / 2, hh = heightM / 2;
+  const corners = [[-hw, hh], [hw, hh], [hw, -hh], [-hw, -hh]]; // TL, TR, BR, BL
+  const mLng = metersPerDegLng(lat) || 1;
+  return corners.map(([x, y]) => {
+    const rx = x * Math.cos(rad) - y * Math.sin(rad);
+    const ry = x * Math.sin(rad) + y * Math.cos(rad);
+    return [lng + rx / mLng, lat + ry / METERS_PER_DEG_LAT];
+  });
+}
+
+function renderImageOverlay(item) {
+  if (!map) return;
+  const srcId = 'cm-img-src-' + item.id;
+  const layerId = 'cm-img-layer-' + item.id;
+  const coords = computeImageCorners(item.lng, item.lat, item.width * 1000, item.height * 1000, item.rotation);
+  if (!map.getSource(srcId)) {
+    map.addSource(srcId, { type: 'image', url: item.src, coordinates: coords });
+    map.addLayer({ id: layerId, type: 'raster', source: srcId,
+      paint: { 'raster-opacity': item.opacity },
+      layout: { visibility: item.visible ? 'visible' : 'none' } });
+  } else {
+    map.getSource(srcId).setCoordinates(coords);
+  }
+  if (map.getLayer(layerId)) {
+    map.setPaintProperty(layerId, 'raster-opacity', item.opacity);
+    map.setLayoutProperty(layerId, 'visibility', item.visible ? 'visible' : 'none');
+  }
+}
+
+function removeImageOverlay(id) {
+  if (!map) return;
+  const layerId = 'cm-img-layer-' + id, srcId = 'cm-img-src-' + id;
+  if (map.getLayer(layerId)) map.removeLayer(layerId);
+  if (map.getSource(srcId)) map.removeSource(srcId);
+}
+
+function addImageOverlay(lng, lat, dataURL) {
+  const img = new Image();
+  img.onload = () => {
+    const aspect = (img.naturalHeight / img.naturalWidth) || 1;
+    const defaultWidthKm = 300;
+    const id = 'im_' + (overlayIdCounter++);
+    const item = {
+      id, type: 'image', visible: true, label: `Image ${overlays.images.length + 1}`,
+      lng, lat, width: defaultWidthKm, height: Math.round(defaultWidthKm * aspect), rotation: 0, opacity: 1, src: dataURL
+    };
+    overlays.images.push(item);
+    overlayOrder.unshift({ type: 'image', id });
+    renderImageOverlay(item);
+    OverlayEngine.applyZOrder();
+    OverlayEngine.renderList();
+  };
+  img.src = dataURL;
+}
+
+// =========================================================================
+// OVERLAY ENGINE — moteur générique : un seul jeu de fonctions
+// (render/remove/list/édition) qui dispatche vers le moteur du bon type.
+// C'est ce module qui pilote le panel "Éléments" et le modal d'édition,
+// pour les 4 types sans dupliquer la logique 4 fois.
+// =========================================================================
+const TYPE_PLURAL = { country: 'countries', point: 'points', text: 'texts', image: 'images', shape: 'shapes' };
+const TYPE_ICON = { country: icon('globe'), point: icon('map-pin'), text: icon('type'), image: icon('image'), shape: icon('pentagon') };
+
+const RENDER_FNS = {
+  country: renderCountryOverlay,
+  point: () => refreshPointsSource(),
+  text: () => refreshTextsSource(),
+  image: renderImageOverlay,
+  shape: renderShapeOverlay,
+};
+const REMOVE_FNS = {
+  country: removeCountryOverlay,
+  point: () => refreshPointsSource(),
+  text: () => refreshTextsSource(),
+  image: removeImageOverlay,
+  shape: removeShapeOverlay,
+};
+
+// Schéma de champs éditables par type -> génère le modal automatiquement
+const FIELD_SCHEMAS = {
+  country: [
+    { key: 'color', label: 'Fill color', type: 'color' },
+    { key: 'opacity', label: 'Opacity', type: 'range', min: 0, max: 1, step: 0.05 },
+    { key: 'borderColor', label: 'Border color', type: 'color' },
+    { key: 'borderWidth', label: 'Border width', type: 'range', min: 0, max: 8, step: 0.5 },
+  ],
+  shape: [
+    { key: 'color', label: 'Fill color', type: 'color' },
+    { key: 'opacity', label: 'Opacity', type: 'range', min: 0, max: 1, step: 0.05 },
+    { key: 'borderColor', label: 'Border color', type: 'color' },
+    { key: 'borderWidth', label: 'Border width', type: 'range', min: 0, max: 8, step: 0.5 },
+  ],
+  point: [
+    { key: 'icon', label: 'Shape', type: 'select', options: ['dot', 'circle', 'pin'], optLabels: { dot: 'Dot', circle: 'Circle', pin: 'Pin' } },
+    { key: 'color', label: 'Color', type: 'color' },
+    { key: 'size', label: 'Size', type: 'range', min: 4, max: 40, step: 1 },
+  ],
+  text: [
+    { key: 'text', label: 'Text', type: 'text' },
+    { key: 'fontSize', label: 'Font size', type: 'range', min: 8, max: 96, step: 1 },
+    { key: 'color', label: 'Color', type: 'color' },
+    { key: 'opacity', label: 'Opacity', type: 'range', min: 0, max: 1, step: 0.05 },
+    { key: 'anchor', label: 'Anchor', type: 'select', options: ['center', 'left', 'right', 'top', 'bottom'] },
+    { key: 'rotation', label: 'Rotation (°)', type: 'range', min: -180, max: 180, step: 1 },
+  ],
+  image: [
+    { key: 'width', label: 'Width (km)', type: 'number', step: 1 },
+    { key: 'height', label: 'Height (km)', type: 'number', step: 1 },
+    { key: 'rotation', label: 'Rotation (°)', type: 'range', min: -180, max: 180, step: 1 },
+    { key: 'opacity', label: 'Opacity', type: 'range', min: 0, max: 1, step: 0.05 },
+  ],
+};
+
+function fieldRowHtml(type, id, field, item) {
+  const val = item[field.key];
+  const oninput = `OverlayEngine.updateField('${type}','${id}','${field.key}', this)`;
+  let input;
+  if (field.type === 'color') {
+    input = `<input type="color" value="${val}" oninput="${oninput}">`;
+  } else if (field.type === 'range') {
+    input = `<input type="range" min="${field.min}" max="${field.max}" step="${field.step}" value="${val}" oninput="${oninput}"><span class="range-val">${val}</span>`;
+  } else if (field.type === 'select') {
+    input = `<select onchange="${oninput}">` + field.options.map(o =>
+      `<option value="${o}" ${o === val ? 'selected' : ''}>${(field.optLabels && field.optLabels[o]) || o}</option>`
+    ).join('') + `</select>`;
+  } else if (field.type === 'number') {
+    input = `<input type="number" step="${field.step || 1}" value="${val}" oninput="${oninput}">`;
+  } else {
+    input = `<input type="text" value="${escapeHtml(String(val))}" oninput="${oninput}">`;
+  }
+  return `<div class="modal-field"><label>${field.label}</label>${input}</div>`;
+}
+
+const OverlayEngine = {
+  getArr(type) { return overlays[TYPE_PLURAL[type]]; },
+  find(type, id) { return this.getArr(type).find(o => o.id === id); },
+  itemsInOrder(type) {
+    return overlayOrder.filter(o => o.type === type).map(o => this.find(type, o.id)).filter(Boolean);
+  },
+
+  delete(type, id) {
+    const arr = this.getArr(type);
+    const idx = arr.findIndex(o => o.id === id);
+    if (idx === -1) return;
+    arr.splice(idx, 1);
+    overlayOrder = overlayOrder.filter(o => !(o.type === type && o.id === id));
+    if (type === 'country' || type === 'image' || type === 'shape') REMOVE_FNS[type](id);
+    else RENDER_FNS[type]();
+    this.renderList();
+  },
+
+  // Undo a group: the original country layers come back (same order, same styling) in place of the group.
+  async ungroup(id) {
+    const item = this.find('shape', id);
+    if (!item || item.source !== 'group') return;
+    const idx = overlayOrder.findIndex(o => o.type === 'shape' && o.id === id);
+    const kids = item.children || [];
+    overlays.shapes.splice(overlays.shapes.indexOf(item), 1);
+    removeShapeOverlay(id);
+    overlayOrder.splice(idx, 1, ...kids.map(c => ({ type: c.type, id: c.id })));
+    kids.forEach(c => { overlays[TYPE_PLURAL[c.type]].push(c); RENDER_FNS[c.type](c); });
+    this.applyZOrder();
+    this.renderList();
+    // members that were added by name (no layer existed) become fresh country layers
+    const missing = (item.members || []).filter(iso => !kids.some(k => k.type === 'country' && k.iso3 === iso));
+    for (const iso of missing) await addCountryByISO3(iso, false);
+    flashHint('⧉ Group undone');
+  },
+
+  fit(type, id) {
+    const item = this.find(type, id);
+    if (!item || !map) return;
+    if (type === 'country') { const f = countryGeomCache[item.iso3]; if (f) map.fitBounds(bboxOfFeature(f), { padding: 60, duration: 1200 }); }
+    else if (type === 'shape') fitShape(item);
+  },
+
+  toggleVisible(type, id) {
+    const item = this.find(type, id);
+    if (!item) return;
+    item.visible = !item.visible;
+    RENDER_FNS[type](item);
+    this.renderList();
+  },
+
+  rename(type, id, value) {
+    const item = this.find(type, id);
+    if (item) item.label = value;
+  },
+
+  move(type, id, dir) {
+    const idx = overlayOrder.findIndex(o => o.type === type && o.id === id);
+    const newIdx = idx + dir;
+    if (idx === -1 || newIdx < 0 || newIdx >= overlayOrder.length) return;
+    [overlayOrder[idx], overlayOrder[newIdx]] = [overlayOrder[newIdx], overlayOrder[idx]];
+    this.applyZOrder();
+    this.renderList();
+  },
+
+  // Réapplique l'ordre d'empilement complet (utilisé après move / création /
+  // rebuild). Pour Pays/Image (1 layer/source par item) on déplace les
+  // vrais layers ; pour Point/Texte (1 layer partagé) on réordonne les
+  // données de la source -> l'ordre relatif entre items du même type
+  // est respecté sans dupliquer N layers.
+  applyZOrder() {
+    if (!map) return;
+    for (let i = overlayOrder.length - 1; i >= 0; i--) {
+      const ref = overlayOrder[i];
+      if (ref.type === 'country') {
+        const fillId = 'cm-country-fill-' + ref.id, lineId = 'cm-country-line-' + ref.id;
+        if (map.getLayer(fillId)) map.moveLayer(fillId);
+        if (map.getLayer(lineId)) map.moveLayer(lineId);
+      } else if (ref.type === 'shape') {
+        const fillId = 'cm-shape-fill-' + ref.id, lineId = 'cm-shape-line-' + ref.id;
+        if (map.getLayer(fillId)) map.moveLayer(fillId);
+        if (map.getLayer(lineId)) map.moveLayer(lineId);
+      } else if (ref.type === 'image') {
+        const layerId = 'cm-img-layer-' + ref.id;
+        if (map.getLayer(layerId)) map.moveLayer(layerId);
+      } else if (ref.type === 'point') {
+        if (map.getLayer(POINT_LAYER_DOT)) map.moveLayer(POINT_LAYER_DOT);
+        if (map.getLayer(POINT_LAYER_PIN)) map.moveLayer(POINT_LAYER_PIN);
+      } else if (ref.type === 'text') {
+        if (map.getLayer(TEXT_LAYER)) map.moveLayer(TEXT_LAYER);
+      }
+    }
+    refreshPointsSource();
+    refreshTextsSource();
+  },
+
+  // Reconstruction complète après changement de style / projection / reload.
+  rebuildAll() {
+    if (!map) return;
+    // chaque étape isolée : un style sans glyphs (texte) ne doit pas empêcher pays/formes/images de revenir
+    try { ensurePointLayers(); } catch (e) { console.warn('[CineMap] points layer:', e); }
+    try { ensureTextLayer(); } catch (e) { console.warn('[CineMap] text layer:', e); }
+    overlays.countries.forEach(renderCountryOverlay);
+    overlays.images.forEach(renderImageOverlay);
+    overlays.shapes.forEach(renderShapeOverlay);
+    if (DrawEngine.active) { DrawEngine.ensureLayers(); DrawEngine.refresh(); }
+    refreshPointsSource();
+    refreshTextsSource();
+    this.applyZOrder();
+  },
+
+  clearAll() {
+    if (!confirm('Delete all elements (countries, points, texts, images)?')) return;
+    overlays.countries.forEach(c => removeCountryOverlay(c.id));
+    overlays.images.forEach(im => removeImageOverlay(im.id));
+    overlays.shapes.forEach(sh => removeShapeOverlay(sh.id));
+    overlays = { countries: [], points: [], texts: [], images: [], shapes: [] };
+    overlayOrder = [];
+    refreshPointsSource();
+    refreshTextsSource();
+    this.renderList();
+  },
+
+  // ── Panel "Éléments" : une seule boucle générique pour les 4 types ──────
+  renderList() {
+    const list = document.getElementById('elements-list');
+    if (overlayOrder.length === 0) {
+      list.innerHTML = `<div class="kf-empty">Add a country, point, text,<br>image or custom shape<br>using the buttons above</div>`;
+      return;
+    }
+    list.innerHTML = overlayOrder.map((ref, idx) => {
+      const item = this.find(ref.type, ref.id);
+      if (!item) return '';
+      return `
+      <div class="el-item ${item.visible ? '' : 'el-hidden'}">
+        <div class="el-icon">${item.source === 'group' ? icon('group') : TYPE_ICON[ref.type]}</div>
+        <input class="el-label" type="text" value="${escapeHtml(item.label)}"${item.source === 'group' ? ` title="Group · ${item.count || (item.members || []).length} items"` : ''}
+          oninput="OverlayEngine.rename('${ref.type}','${ref.id}', this.value)">
+        <div class="el-controls">
+          ${(ref.type === 'country' || ref.type === 'shape') ? `
+          <input type="color" class="el-color-swatch" value="${item.color}" title="Fill color" oninput="OverlayEngine.updateField('${ref.type}','${ref.id}','color', this)">
+          <input type="color" class="el-color-swatch el-color-swatch-border" value="${item.borderColor}" title="Border color" oninput="OverlayEngine.updateField('${ref.type}','${ref.id}','borderColor', this)">
+          ` : ''}
+          ${item.source === 'group' ? `<button class="el-btn" title="Ungroup — restore the individual layers" onclick="OverlayEngine.ungroup('${ref.id}')">${icon('ungroup')}</button>` : ''}
+          ${(ref.type === 'country' || ref.type === 'shape') ? `<button class="el-btn" title="Zoom to" onclick="OverlayEngine.fit('${ref.type}','${ref.id}')">${icon('crosshair')}</button>` : ''}
+          <button class="el-btn" title="Show/Hide" onclick="OverlayEngine.toggleVisible('${ref.type}','${ref.id}')">${item.visible ? icon('eye') : icon('eye-off')}</button>
+          <button class="el-btn" title="Move up" onclick="OverlayEngine.move('${ref.type}','${ref.id}',-1)" ${idx === 0 ? 'disabled' : ''}>${icon('chevron-up')}</button>
+          <button class="el-btn" title="Move down" onclick="OverlayEngine.move('${ref.type}','${ref.id}',1)" ${idx === overlayOrder.length - 1 ? 'disabled' : ''}>${icon('chevron-down')}</button>
+          <button class="el-btn" title="Options" onclick="OverlayEngine.openEditor('${ref.type}','${ref.id}')">${icon('settings')}</button>
+          <button class="el-btn el-btn-danger" title="Delete" onclick="OverlayEngine.delete('${ref.type}','${ref.id}')" aria-label="Delete">${icon('x')}</button>
+        </div>
+      </div>`;
+    }).join('');
+  },
+
+  // ── Modal d'édition générique, généré depuis FIELD_SCHEMAS ──────────────
+  openEditor(type, id) {
+    const item = this.find(type, id);
+    if (!item) return;
+    document.getElementById('modal-title').innerHTML = `${TYPE_ICON[type]} <span>${escapeHtml(item.label)}</span>`;
+    document.getElementById('modal-fields').innerHTML =
+      FIELD_SCHEMAS[type].map(f => fieldRowHtml(type, id, f, item)).join('');
+    const panel = document.querySelector('#editor-modal-overlay .modal-box');
+    panel.style.left = '';
+    panel.style.top = '110px';
+    panel.style.right = '28px';
+    document.getElementById('editor-modal-overlay').classList.add('visible');
+  },
+  closeEditor() {
+    document.getElementById('editor-modal-overlay').classList.remove('visible');
+  },
+  updateField(type, id, key, el) {
+    const item = this.find(type, id);
+    if (!item) return;
+    let val = el.value;
+    if (el.type === 'range' || el.type === 'number') {
+      val = parseFloat(val);
+      const span = el.nextElementSibling;
+      if (span && span.classList.contains('range-val')) span.textContent = val;
+    }
+    item[key] = val;
+    RENDER_FNS[type](item);
+  },
+};
+
+// =========================================================================
+// TOOL ENGINE — modes d'ajout (+Pays / +Point / +Texte / +Image)
+// =========================================================================
+let selectedTool = null;
+let pendingImageDataURL = null;
+
+const ToolEngine = {
+  toggle(tool) {
+    selectedTool = (selectedTool === tool) ? null : tool;
+    pendingImageDataURL = null;
+    this._refreshUI();
+  },
+  deactivate() {
+    selectedTool = null;
+    pendingImageDataURL = null;
+    this._refreshUI();
+  },
+  startImage() {
+    document.getElementById('image-upload-input').click();
+  },
+  _refreshUI() {
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === selectedTool));
+    document.getElementById('country-search-row').style.display = selectedTool === 'country' ? 'flex' : 'none';
+    if (selectedTool === 'country') setTimeout(() => document.getElementById('country-search-input').focus(), 30);
+    else if (typeof CountryPicker !== 'undefined') CountryPicker.hide();
+    if (map) map.getCanvas().style.cursor = selectedTool ? 'crosshair' : '';
+    const hints = {
+      country: '🌍 Click on the map or search for a country',
+      point: '📍 Click on the map to place a point',
+      text: '🔤 Click on the map to place text',
+      draw: '⬠ Click = point · double-click / Enter = finish · Backspace = undo · Esc = cancel',
+    };
+    if (selectedTool && hints[selectedTool]) flashHint(hints[selectedTool]);
+    else if (!selectedTool) flashHint(map ? 'Navigate → capture views with the button' : 'Enter your Maptiler API key to get started');
+    if (selectedTool === 'draw') DrawEngine.begin(); else DrawEngine.end();
+  },
+  handleMapClick(e) {
+    if (!selectedTool) return;
+    const { lng, lat } = e.lngLat;
+    if (selectedTool === 'point') addPointOverlay(lng, lat);
+    else if (selectedTool === 'text') addTextOverlay(lng, lat);
+    else if (selectedTool === 'draw') DrawEngine.click(e);
+    else if (selectedTool === 'country') detectAndAddCountry(lng, lat);
+    else if (selectedTool === 'image' && pendingImageDataURL) {
+      addImageOverlay(lng, lat, pendingImageDataURL);
+      ToolEngine.deactivate();
+    }
+  }
+};
+
+document.getElementById('image-upload-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    pendingImageDataURL = reader.result;
+    selectedTool = 'image';
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === 'image'));
+    if (map) map.getCanvas().style.cursor = 'crosshair';
+    flashHint('🖼 Click on the map to place the image');
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('country-search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addCountryByName(e.target.value);
+    e.target.value = '';
+  }
+});
+
+// ─── COUNTRY DROPDOWN ──────────────────────────────────────────────────────────────────
+// Custom replacement for <datalist> (which hides most options and only opens on a double click / arrow
+// key). Opens on focus / click / typing, shows the FULL list when empty, filters live, keyboard-friendly.
+// Rendered as position:fixed on <body> so no sidebar/modal overflow can clip it.
+const CountryPicker = (() => {
+  const dd = document.createElement('div');
+  dd.id = 'country-dd';
+  document.body.appendChild(dd);
+  let input = null, onPick = null, isChosen = () => false, items = [], active = -1;
+
+  function place() {
+    if (!input) return;
+    const r = input.getBoundingClientRect(), vh = window.innerHeight;
+    const below = vh - r.bottom - 12, above = r.top - 12;
+    const up = below < 160 && above > below;
+    dd.style.left = r.left + 'px';
+    dd.style.width = Math.max(r.width, 220) + 'px';
+    dd.style.maxHeight = Math.max(120, Math.min(340, up ? above : below)) + 'px';
+    if (up) { dd.style.top = 'auto'; dd.style.bottom = (vh - r.top + 4) + 'px'; }
+    else { dd.style.bottom = 'auto'; dd.style.top = (r.bottom + 4) + 'px'; }
+  }
+  function render() {
+    const q = input.value;
+    items = searchCountries(q);
+    active = (q.trim() && items.length) ? 0 : -1;
+    if (!items.length) { dd.innerHTML = '<div class="cdd-empty">No matching country</div>'; }
+    else dd.innerHTML = items.map((c, i) => {
+      const done = isChosen(c);
+      return `<div class="cdd-item${i === active ? ' active' : ''}${done ? ' done' : ''}" data-i="${i}"><span>${escapeHtml(c.name)}</span><em>${done ? icon('check') : c.iso3}</em></div>`;
+    }).join('');
+    dd.classList.add('visible');
+    place();
+  }
+  function highlight(i) {
+    const els = dd.querySelectorAll('.cdd-item');
+    if (!els.length) return;
+    active = (i + els.length) % els.length;
+    els.forEach((e, k) => e.classList.toggle('active', k === active));
+    els[active].scrollIntoView({ block: 'nearest' });
+  }
+  function hide() { dd.classList.remove('visible'); active = -1; }
+  function pick(i) {
+    const c = items[i];
+    if (!c) return;
+    onPick(c);
+    input.value = '';
+    if (dd.classList.contains('visible')) render(); // stays open (group builder: add several in a row)
+  }
+  // Prevent focus loss on click so the input keeps its caret; pick on mousedown.
+  dd.addEventListener('mousedown', e => {
+    e.preventDefault();
+    const el = e.target.closest('.cdd-item');
+    if (el) pick(+el.dataset.i);
+  });
+  window.addEventListener('resize', () => { if (dd.classList.contains('visible')) place(); });
+  document.addEventListener('mousedown', e => {
+    if (input && e.target !== input && !dd.contains(e.target)) hide();
+  });
+
+  return {
+    attach(inp, cb, chosenFn, closeAfterPick) {
+      const open = () => { input = inp; onPick = c => { cb(c); if (closeAfterPick) hide(); }; isChosen = chosenFn || (() => false); render(); };
+      inp.addEventListener('focus', open);
+      inp.addEventListener('click', open);
+      inp.addEventListener('input', open);
+      inp.addEventListener('blur', hide);
+      // capture = runs before the Enter handlers declared elsewhere
+      inp.addEventListener('keydown', e => {
+        if (!dd.classList.contains('visible') || input !== inp) {
+          if (e.key === 'ArrowDown') { e.preventDefault(); open(); }
+          return;
+        }
+        if (e.key === 'ArrowDown') { e.preventDefault(); highlight(active + 1); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); highlight(active < 0 ? items.length - 1 : active - 1); }
+        else if (e.key === 'Escape') { e.stopPropagation(); hide(); }
+        else if (e.key === 'Enter' && active >= 0 && items[active]) {
+          e.preventDefault(); e.stopImmediatePropagation(); pick(active);
+        }
+      }, true);
+    },
+    hide, open(inp) { inp.focus(); inp.dispatchEvent(new Event('focus')); }
+  };
+})();
+
+CountryPicker.attach(
+  document.getElementById('country-search-input'),
+  c => addCountryByISO3(c.iso3, true),
+  null, true
+);
+
+// ─── GROUPES DE PAYS : fusion en une seule forme, frontières internes dissoutes ────────
+const GroupBuilder = {
+  members: [],          // countries: { ...COUNTRY_LIST entry, neg }
+  shapeSel: new Map(),  // shape layer id (draw / import / group) -> neg
+  open() {
+    this.members = []; this.shapeSel = new Map();
+    document.getElementById('group-name').value = '';
+    document.getElementById('group-input').value = '';
+    this.msg('');
+    this.renderChips();
+    document.getElementById('group-modal-overlay').classList.add('visible');
+    setTimeout(() => document.getElementById('group-input').focus(), 50);
+  },
+  close() { document.getElementById('group-modal-overlay').classList.remove('visible'); },
+  msg(t, bad) { const e = document.getElementById('group-msg'); e.textContent = t; e.classList.toggle('bad', !!bad); },
+  find(token) {
+    return token.trim() ? findCountry(token) : null;
+  },
+  addMember(c, neg) { if (c && !this.members.some(m => m.iso3 === c.iso3)) this.members.push({ ...c, neg: !!neg }); },
+  addFromText(text) {
+    const notFound = [];
+    text.split(/[,;\n]+/).map(t => t.trim()).filter(Boolean).forEach(t => {
+      const c = this.find(t);
+      if (!c) notFound.push(t); else this.addMember(c);
+    });
+    this.renderChips();
+    this.msg(notFound.length ? 'Not found: ' + notFound.join(', ') : '', notFound.length > 0);
+  },
+  remove(iso3) { this.members = this.members.filter(m => m.iso3 !== iso3); this.renderChips(); },
+  flip(iso3) { const m = this.members.find(x => x.iso3 === iso3); if (m) { m.neg = !m.neg; this.msg(''); this.renderChips(); } },
+  // click cycle on a layer chip:  off → add (+) → subtract (−) → off
+  toggleLayer(iso3) {
+    const m = this.members.find(x => x.iso3 === iso3);
+    if (!m) this.addMember(COUNTRY_LIST.find(x => x.iso3 === iso3), false);
+    else if (!m.neg) m.neg = true;
+    else this.members = this.members.filter(x => x.iso3 !== iso3);
+    this.msg(''); this.renderChips();
+  },
+  toggleShape(id) {
+    const cur = this.shapeSel.get(id);
+    if (cur === undefined) this.shapeSel.set(id, false);
+    else if (cur === false) this.shapeSel.set(id, true);
+    else this.shapeSel.delete(id);
+    this.msg(''); this.renderChips();
+  },
+  selectAllLayers() {
+    overlays.countries.forEach(l => this.addMember(COUNTRY_LIST.find(x => x.iso3 === l.iso3), false));
+    overlays.shapes.forEach(sh => { if (!this.shapeSel.has(sh.id)) this.shapeSel.set(sh.id, false); });
+    this.msg(''); this.renderChips();
+  },
+  renderChips() {
+    const wrap = document.getElementById('group-layers-wrap');
+    const seen = new Set();
+    const cLayers = OverlayEngine.itemsInOrder('country').filter(l => !seen.has(l.iso3) && seen.add(l.iso3));
+    const sLayers = OverlayEngine.itemsInOrder('shape');
+    wrap.style.display = (cLayers.length || sLayers.length) ? '' : 'none';
+    const chip = (state, label, onclick) => {
+      const cls = state === 'add' ? ' on' : state === 'neg' ? ' neg' : '';
+      const mark = state === 'add' ? '+ ' : state === 'neg' ? '− ' : '';
+      return `<span class="chip chip-pick${cls}" onclick="${onclick}">${mark}${label}</span>`;
+    };
+    document.getElementById('group-layers').innerHTML =
+      cLayers.map(l => {
+        const m = this.members.find(x => x.iso3 === l.iso3);
+        return chip(!m ? '' : m.neg ? 'neg' : 'add', escapeHtml(l.label), `GroupBuilder.toggleLayer('${l.iso3}')`);
+      }).join('') +
+      sLayers.map(sh => {
+        const v = this.shapeSel.get(sh.id);
+        return chip(v === undefined ? '' : v ? 'neg' : 'add', icon('pentagon') + ' ' + escapeHtml(sh.label), `GroupBuilder.toggleShape('${sh.id}')`);
+      }).join('');
+    const box = document.getElementById('group-chips');
+    box.innerHTML = this.members.length
+      ? this.members.map(m => `<span class="chip${m.neg ? ' neg' : ''}"><i class="sgn" title="Switch add / subtract" onclick="GroupBuilder.flip('${m.iso3}')">${m.neg ? '−' : '+'}</i> ${escapeHtml(m.name)} <b onclick="GroupBuilder.remove('${m.iso3}')">${icon('x')}</b></span>`).join('')
+      : `<span class="chip-empty">${this.shapeSel.size ? 'Only shape layers selected' : 'No country yet'}</span>`;
+  },
+  async create() {
+    const total = this.members.length + this.shapeSel.size;
+    const nPos = this.members.filter(m => !m.neg).length + [...this.shapeSel.values()].filter(v => !v).length;
+    if (total < 2 || nPos < 1) { this.msg('Select at least 2 items, with at least one to add (+)', true); return; }
+    if (!window.topojson) { this.msg('⚠ topojson library missing', true); return; }
+    this.msg('Merging...');
+    await new Promise(r => setTimeout(r, 30)); // let the message paint before the heavy part
+    try {
+      const topo = await loadAtlas();
+      const posG = [], negG = [], skipped = [];
+      this.members.forEach(m => {
+        const g = atlasGeomFor(topo, m.iso3);
+        if (!g) skipped.push(m.name); else (m.neg ? negG : posG).push(g);
+      });
+      const toMP = g => !g ? [] : g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+      const shapeMP = id => { const it = OverlayEngine.find('shape', id), out = []; if (it) it.geojson.features.forEach(f => out.push(...toMP(f.geometry))); return out; };
+      const pos = [], neg = [];                                   // arrays of MultiPolygon coordinates
+      if (posG.length) pos.push(topojson.merge(topo, posG).coordinates); // dissolves shared borders (arcs)
+      if (negG.length) neg.push(topojson.merge(topo, negG).coordinates);
+      this.shapeSel.forEach((isNeg, id) => { const mp = shapeMP(id); if (mp.length) (isNeg ? neg : pos).push(mp); });
+      if (!pos.length) throw new Error('Nothing to add: no polygon among the "+" items');
+      let coords;
+      if (pos.length === 1 && !neg.length) coords = pos[0];
+      else {
+        const pc = window.polygonClipping;
+        if (!pc) throw new Error('polygon-clipping library missing');
+        coords = pos.length > 1 ? pc.union(...pos) : pos[0];
+        if (neg.length) coords = pc.difference(coords, ...neg);
+      }
+      if (!coords || !coords.length) throw new Error('Nothing left after subtraction');
+      const merged = { type: 'MultiPolygon', coordinates: coords };
+      const name = document.getElementById('group-name').value.trim() || `Group (${total})`;
+
+      // Real grouping: every selected layer (country or shape, "+" or "−") is absorbed INTO the group
+      // (removed from the list, kept inside so it can be ungrouped). The group takes the topmost one's
+      // place and the style of the topmost "+" layer.
+      const posIso = new Set(this.members.filter(m => !m.neg).map(m => m.iso3));
+      const negIso = new Set(this.members.filter(m => m.neg).map(m => m.iso3));
+      const kids = [];
+      overlays.countries.forEach(c => { if (posIso.has(c.iso3) || negIso.has(c.iso3)) kids.push({ c, neg: !posIso.has(c.iso3) }); });
+      this.shapeSel.forEach((isNeg, id) => { const it = OverlayEngine.find('shape', id); if (it) kids.push({ c: it, neg: isNeg }); });
+      kids.forEach(k => { k.i = overlayOrder.findIndex(o => o.type === k.c.type && o.id === k.c.id); });
+      kids.sort((x, y) => x.i - y.i);
+      const insertAt = kids.length ? Math.max(0, kids[0].i) : 0;
+      const top = (kids.find(k => !k.neg) || {}).c || null;
+      kids.forEach(({ c }) => {
+        if (c.type === 'country') { overlays.countries.splice(overlays.countries.indexOf(c), 1); removeCountryOverlay(c.id); }
+        else { overlays.shapes.splice(overlays.shapes.indexOf(c), 1); removeShapeOverlay(c.id); }
+        overlayOrder = overlayOrder.filter(o => !(o.type === c.type && o.id === c.id));
+      });
+      const item = addShapeOverlay({
+        label: name, source: 'group', members: [...posIso], count: total,
+        children: kids.map(k => k.c), insertAt,
+        style: top ? { color: top.color, opacity: top.opacity, borderColor: top.borderColor, borderWidth: top.borderWidth, visible: top.visible } : null,
+        geojson: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { name }, geometry: merged }] },
+      });
+      fitShape(item);
+      this.close();
+      flashHint(skipped.length ? '⚠ Skipped (no 10m data): ' + skipped.join(', ')
+        : `⧉ Group created${kids.length ? ' — ' + kids.length + ' layer' + (kids.length > 1 ? 's' : '') + ' grouped' : ''}${neg.length ? ' (with subtraction)' : ''}`);
+    } catch (e) {
+      console.error('[CineMap] Group:', e);
+      this.msg('⚠ ' + (e && e.message ? e.message : e), true);
+    }
+  }
+};
+CountryPicker.attach(
+  document.getElementById('group-input'),
+  c => { GroupBuilder.addMember(c, false); GroupBuilder.renderChips(); GroupBuilder.msg(''); },
+  c => GroupBuilder.members.some(m => m.iso3 === c.iso3), false
+);
+document.getElementById('group-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); GroupBuilder.addFromText(e.target.value); e.target.value = ''; }
+});
+document.getElementById('group-input').addEventListener('paste', e => {
+  setTimeout(() => { GroupBuilder.addFromText(e.target.value); e.target.value = ''; }, 0);
+});
+
+// ─── IMPORT GeoJSON / TopoJSON (bouton, ou glisser-déposer sur la carte) ───────────────
+const GeoImport = {
+  pick() { document.getElementById('geojson-upload-input').click(); },
+  normalize(obj) {
+    const out = []; let skipped = 0;
+    const pushGeom = (g, props) => {
+      if (!g) return;
+      if (g.type === 'GeometryCollection') { (g.geometries || []).forEach(x => pushGeom(x, props)); return; }
+      if (['Polygon', 'MultiPolygon', 'LineString', 'MultiLineString'].includes(g.type)) out.push({ type: 'Feature', properties: props || {}, geometry: g });
+      else skipped++;
+    };
+    const handle = o => {
+      if (!o) return;
+      if (o.type === 'FeatureCollection') (o.features || []).forEach(handle);
+      else if (o.type === 'Feature') pushGeom(o.geometry, o.properties);
+      else if (o.type === 'Topology') { if (!window.topojson) throw new Error('topojson library missing'); Object.values(o.objects).forEach(ob => handle(topojson.feature(o, ob))); }
+      else pushGeom(o, {});
+    };
+    handle(obj);
+    return { features: out, skipped };
+  },
+  async handleFile(file) {
+    if (!file) return;
+    try {
+      if (file.size > 50e6) throw new Error('File too large (>50 MB) — simplify it on mapshaper.org');
+      const obj = JSON.parse(await file.text());
+      const { features, skipped } = this.normalize(obj);
+      if (!features.length) throw new Error('No polygon or line found in this file');
+      let bad = false;
+      features.forEach(f => forEachPosition(f.geometry.coordinates, (x, y) => { if (!(Math.abs(x) <= 360 && Math.abs(y) <= 90)) bad = true; }));
+      if (bad) throw new Error('Coordinates are not lng/lat (file looks projected) — re-export as WGS84 / EPSG:4326');
+      const item = addShapeOverlay({
+        label: file.name.replace(/\.(geo)?json$/i, ''), source: 'import',
+        geojson: { type: 'FeatureCollection', features },
+      });
+      fitShape(item);
+      flashHint(`📂 Imported ${features.length} feature${features.length > 1 ? 's' : ''}` + (skipped ? ` (${skipped} point/other ignored)` : ''));
+    } catch (e) {
+      console.error('[CineMap] Import:', e);
+      flashHint('⚠ Import failed: ' + (e && e.message ? e.message : e));
+    }
+  }
+};
+document.getElementById('geojson-upload-input').addEventListener('change', e => {
+  const f = e.target.files[0]; e.target.value = ''; GeoImport.handleFile(f);
+});
+(function () {
+  const vp = document.querySelector('.map-16-9');
+  vp.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+  vp.addEventListener('drop', e => {
+    const f = e.dataTransfer && e.dataTransfer.files[0];
+    if (f && /\.(geo)?json$/i.test(f.name)) { e.preventDefault(); GeoImport.handleFile(f); }
+  });
+})();
+
+// ─── DESSIN : polygone clic par clic, avec accroche (snap) aux sommets des frontières existantes ───
+const DrawEngine = {
+  active: false, pts: [], cursor: null, snapPt: null, index: null,
+  lastT: 0, lastPx: null, raf: null,
+  SRC: 'cm-draw-src',
+
+  begin() {
+    if (!map) return;
+    this.active = true; this.pts = []; this.cursor = null; this.snapPt = null;
+    this.buildIndex();
+    this.ensureLayers();
+    map.doubleClickZoom.disable();
+    document.getElementById('draw-bar').classList.add('visible');
+    this.refresh();
+  },
+  end() {
+    this.active = false; this.pts = []; this.cursor = null; this.snapPt = null;
+    document.getElementById('draw-bar').classList.remove('visible');
+    if (map) { map.doubleClickZoom.enable(); this.removeLayers(); }
+  },
+
+  // Tous les sommets des pays / formes visibles -> tableaux plats (accroche rapide même avec 100k points)
+  buildIndex() {
+    const lng = [], lat = [];
+    const add = g => { if (g) forEachPosition(g.coordinates, (x, y) => { lng.push(x); lat.push(y); }); };
+    overlays.countries.forEach(c => { const f = countryGeomCache[c.iso3]; if (f && c.visible) add(f.geometry); });
+    overlays.shapes.forEach(sh => { if (sh.visible) sh.geojson.features.forEach(f => add(f.geometry)); });
+    this.index = { n: lng.length, lng: Float64Array.from(lng), lat: Float64Array.from(lat) };
+  },
+  snap(lng, lat) {
+    if (!this.index || !this.index.n) return null;
+    const R = 12; // rayon d'accroche en pixels
+    const degPerPx = 360 / (512 * Math.pow(2, map.getZoom()));
+    const lngTol = R * degPerPx, latTol = lngTol * Math.max(0.05, Math.cos(lat * Math.PI / 180));
+    const wl = ((lng + 540) % 360) - 180;
+    const { n, lng: X, lat: Y } = this.index;
+    let best = -1, bd = 1;
+    for (let i = 0; i < n; i++) {
+      const dx = (X[i] - wl) / lngTol; if (dx > 1 || dx < -1) continue;
+      const dy = (Y[i] - lat) / latTol; if (dy > 1 || dy < -1) continue;
+      const d = dx * dx + dy * dy;
+      if (d <= bd) { bd = d; best = i; }
+    }
+    return best < 0 ? null : [X[best], Y[best]];
+  },
+  pointFrom(e) {
+    const lat = e.lngLat.lat, lng = ((e.lngLat.lng + 540) % 360) - 180;
+    const on = document.getElementById('draw-snap').checked && !(e.originalEvent && e.originalEvent.altKey);
+    if (on) { const s = this.snap(lng, lat); if (s) return { p: s, snapped: true }; }
+    return { p: [lng, lat], snapped: false };
+  },
+
+  move(e) {
+    if (!this.active) return;
+    const { p, snapped } = this.pointFrom(e);
+    this.cursor = p; this.snapPt = snapped ? p : null;
+    if (!this.raf) this.raf = requestAnimationFrame(() => { this.raf = null; this.refresh(); });
+  },
+  click(e) {
+    if (!this.active) return;
+    const now = performance.now(), px = e.point;
+    // le 2e clic d'un double-clic ne doit pas ajouter de point
+    if (this.lastPx && now - this.lastT < 400 && Math.hypot(px.x - this.lastPx.x, px.y - this.lastPx.y) < 6) return;
+    this.lastT = now; this.lastPx = { x: px.x, y: px.y };
+    const { p } = this.pointFrom(e);
+    this.pts.push(p); this.cursor = p;
+    this.refresh();
+  },
+  dblclick(e) { if (this.active) { if (e.preventDefault) e.preventDefault(); this.finish(); } },
+  undo() { if (this.pts.length) { this.pts.pop(); this.lastPx = null; this.refresh(); } },
+  cancel() { if (this.pts.length) { this.pts = []; this.refresh(); } else ToolEngine.deactivate(); },
+  finish() {
+    if (this.pts.length < 3) { flashHint('⚠ A polygon needs at least 3 points'); return; }
+    const ring = this.pts.concat([this.pts[0]]);
+    const n = overlays.shapes.filter(s => s.source === 'draw').length + 1;
+    addShapeOverlay({
+      label: 'Shape ' + n, source: 'draw',
+      geojson: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } }] },
+    });
+    this.pts = []; this.buildIndex(); this.refresh();
+    flashHint('✓ Shape created — draw another one, or press Esc');
+  },
+
+  ensureLayers() {
+    if (!map || map.getSource(this.SRC)) return;
+    map.addSource(this.SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    const f = k => ['==', ['get', 'k'], k];
+    map.addLayer({ id: 'cm-draw-fill', type: 'fill', source: this.SRC, filter: f('fill'), paint: { 'fill-color': '#c8f060', 'fill-opacity': 0.18 } });
+    map.addLayer({ id: 'cm-draw-line', type: 'line', source: this.SRC, filter: f('line'), paint: { 'line-color': '#c8f060', 'line-width': 2, 'line-dasharray': [2, 1] } });
+    map.addLayer({ id: 'cm-draw-pts', type: 'circle', source: this.SRC, filter: f('pt'),
+      paint: { 'circle-radius': ['case', ['get', 'first'], 6, 4], 'circle-color': '#ffffff', 'circle-stroke-color': '#c8f060', 'circle-stroke-width': 2 } });
+    map.addLayer({ id: 'cm-draw-snap', type: 'circle', source: this.SRC, filter: f('snap'),
+      paint: { 'circle-radius': 9, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#ffd24a', 'circle-stroke-width': 2 } });
+  },
+  removeLayers() {
+    if (!map) return;
+    ['cm-draw-fill', 'cm-draw-line', 'cm-draw-pts', 'cm-draw-snap'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    if (map.getSource(this.SRC)) map.removeSource(this.SRC);
+  },
+  refresh() {
+    document.getElementById('draw-count').textContent = this.pts.length + ' pt' + (this.pts.length === 1 ? '' : 's');
+    const src = map && map.getSource(this.SRC);
+    if (!src) return;
+    const all = (this.cursor && this.pts.length) ? this.pts.concat([this.cursor]) : this.pts;
+    const feats = [];
+    if (all.length >= 3) feats.push({ type: 'Feature', properties: { k: 'fill' }, geometry: { type: 'Polygon', coordinates: [all.concat([all[0]])] } });
+    if (all.length >= 2) feats.push({ type: 'Feature', properties: { k: 'line' }, geometry: { type: 'LineString', coordinates: all } });
+    this.pts.forEach((p, i) => feats.push({ type: 'Feature', properties: { k: 'pt', first: i === 0 }, geometry: { type: 'Point', coordinates: p } }));
+    if (this.snapPt) feats.push({ type: 'Feature', properties: { k: 'snap' }, geometry: { type: 'Point', coordinates: this.snapPt } });
+    src.setData({ type: 'FeatureCollection', features: feats });
+  }
+};
+document.addEventListener('keydown', e => {
+  if (!DrawEngine.active) return;
+  const tag = (document.activeElement || {}).tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (e.key === 'Enter') { e.preventDefault(); DrawEngine.finish(); }
+  else if (e.key === 'Escape') { e.preventDefault(); DrawEngine.cancel(); }
+  else if (e.key === 'Backspace' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z')) { e.preventDefault(); DrawEngine.undo(); }
+});
+
+// Panneau d'options flottant : déplacement par sa barre de titre.
+(() => {
+  const panel = document.querySelector('#editor-modal-overlay .modal-box');
+  const handle = document.getElementById('modal-title');
+  let drag = null;
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button, input, select')) return;
+    const r = panel.getBoundingClientRect();
+    drag = { x: e.clientX, y: e.clientY, left: r.left, top: r.top };
+    handle.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const left = Math.max(8, Math.min(window.innerWidth - panel.offsetWidth - 8, drag.left + e.clientX - drag.x));
+    const top = Math.max(8, Math.min(window.innerHeight - 80, drag.top + e.clientY - drag.y));
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    panel.style.right = 'auto';
+  });
+  const stop = () => { drag = null; };
+  handle.addEventListener('pointerup', stop);
+  handle.addEventListener('pointercancel', stop);
+})();
+
+// ─── TABS (Keyframes / Éléments) ────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('tab-keyframes').style.display = tab === 'kf' ? 'flex' : 'none';
+  document.getElementById('tab-elements').style.display = tab === 'el' ? 'flex' : 'none';
+  document.getElementById('tabbtn-kf').classList.toggle('active', tab === 'kf');
+  document.getElementById('tabbtn-el').classList.toggle('active', tab === 'el');
+}
+
+// =========================================================================
+// MAP INIT — Camera/Globe/Style/Overlay engines assemblés ici
+// =========================================================================
+function initMap() {
+  const key = document.getElementById('api-key').value.trim();
+  if (!key) { alert('Enter your Maptiler API key'); return; }
+
+  currentApiKey = key;
+  if (map) { map.remove(); map = null; }
+
+  ToolEngine.deactivate();
+  flashHint('Loading map...');
+
+  map = new maplibregl.Map({
+    container: 'map',
+    style: getMapStyle(currentStyleKey, key),
+    center: [0, 25],   // vue monde par défaut
+    zoom: 1.7,
+    pitch: 0,
+    bearing: 0,
+    fadeDuration: 0,
+    maxPitch: 85,
+    canvasContextAttributes: { antialias: true, preserveDrawingBuffer: true },
+  });
+
+  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+  map.addControl(new maplibregl.ScaleControl(), 'bottom-right');
+  map.on('click', (e) => ToolEngine.handleMapClick(e));
+  map.on('mousemove', (e) => DrawEngine.move(e));
+  map.on('dblclick', (e) => DrawEngine.dblclick(e));
+
+  let mapReady = false;
+
+  function markMapReady(source) {
+    if (mapReady) return; // déjà fait, évite double exécution (load + idle)
+    mapReady = true;
+    console.log('[CineMap] Map ready (trigger: ' + source + ')');
+
+    try { GlobeEngine.apply(); } // projection globe par défaut (ou flat si déjà choisi)
+    catch (e) { console.error('[CineMap] GlobeEngine.apply() a échoué:', e); }
+
+    document.getElementById('status-dot').classList.add('ok');
+    document.getElementById('status-text').textContent = 'Ready';
+    flashHint('Navigate → capture views with the button');
+    document.getElementById('btn-capture').disabled = false;
+
+    TerrainEngine.apply();
+    try { OverlayEngine.rebuildAll(); } // au cas où des éléments existaient déjà (re-init)
+    catch (e) { console.error('[CineMap] OverlayEngine.rebuildAll() a échoué:', e); }
+    try { LabelEngine.reset(); } catch (e) { console.error('[CineMap] LabelEngine:', e); }
+    try { LabelEngine.localize(); } catch (e) { console.error('[CineMap] LabelEngine.localize:', e); }
+  }
+
+  map.on('load', () => markMapReady('load'));
+  // Filet de sécurité : 'idle' se déclenche aussi une fois le rendu stabilisé,
+  // au cas où 'load' ne se déclenche pas dans certains environnements.
+  map.once('idle', () => markMapReady('idle'));
+
+  map.on('error', (e) => {
+    console.error('[CineMap] MapLibre error:', e && e.error ? e.error : e);
+    document.getElementById('status-text').textContent = 'Loading error';
+    flashHint('⚠ Invalid key or style — check your MapTiler account');
+  });
+
+  // Filet de sécurité ultime : si ni 'load' ni 'idle' ne se déclenchent après
+  // 8s (bug navigateur/extension), on débloque quand même l'interface.
+  setTimeout(() => {
+    if (!mapReady) {
+      console.warn('[CineMap] Ni load ni idle ne se sont déclenchés après 8s — déblocage forcé.');
+      document.getElementById('status-text').textContent = 'Ready (forced)';
+      markMapReady('timeout-fallback');
+    }
+  }, 8000);
+}
+
+// ─── KEYFRAMES (Camera Engine) ──────────────────────────────────────────────
+function captureKeyframe() {
+  if (!map || keyframes.length >= 10) return;
+  const c = map.getCenter();
+  const kf = {
+    id: Date.now(),
+    lng: c.lng,
+    lat: c.lat,
+    zoom: map.getZoom(),
+    bearing: map.getBearing(),
+    pitch: map.getPitch(),
+    dur: keyframes.length ? (keyframes[keyframes.length - 1].dur || 4) : 4, // durée vers la keyframe suivante
+    ease: keyframes.length ? (keyframes[keyframes.length - 1].ease || 'ease-in-out') : 'ease-in-out', // easing du segment vers la suivante
+  };
+  keyframes.push(kf);
+  renderKFList();
+  updateButtons();
+
+  const btn = document.getElementById('btn-capture');
+  btn.innerHTML = icon('check') + ' Captured!';
+  btn.style.background = '#111a00';
+  setTimeout(() => {
+    btn.textContent = '+ Capture current view';
+    btn.style.background = '';
+  }, 800);
+}
+
+function deleteKeyframe(id) {
+  keyframes = keyframes.filter(k => k.id !== id);
+  renderKFList();
+  updateButtons();
+}
+
+function jumpToKeyframe(kf) {
+  if (!map) return;
+  map.flyTo({
+    center: [kf.lng, kf.lat],
+    zoom: kf.zoom,
+    bearing: kf.bearing,
+    pitch: kf.pitch,
+    duration: 800,
+    essential: true
+  });
+}
+
+function renderKFList() {
+  const list = document.getElementById('kf-list');
+  document.getElementById('kf-count').textContent = `${keyframes.length} / 10`;
+
+  if (keyframes.length === 0) {
+    list.innerHTML = `<div class="kf-empty">Navigate the map<br>and capture views</div>`;
+    return;
+  }
+
+  const pad = n => String(n).padStart(2, '0');
+  let html = '';
+  keyframes.forEach((kf, i) => {
+    if (i > 0) {
+      html += `
+    <div class="kf-gap" title="Time from KF ${pad(i)} to KF ${pad(i + 1)}">
+      <span class="kf-gap-line"></span><span>${icon('timer')}</span>
+      <input type="number" min="0.2" max="60" step="any" value="${+segDur(i - 1).toFixed(2)}" onfocus="this.select()" onkeydown="if(event.key==='Enter')this.blur()" onchange="setSegDuration(${i - 1}, this.value)">
+      <span class="kf-gap-unit">s</span>
+      <select title="Easing of this segment" onchange="setSegEase(${i - 1}, this.value)">${EASE_OPTIONS.map(([v, l]) => `<option value="${v}"${(keyframes[i - 1].ease || 'ease-in-out') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <span class="kf-gap-line"></span>
+    </div>`;
+    }
+    html += `
+    <div class="kf-item" onclick="jumpToKeyframe(keyframes[${i}])">
+      <div class="kf-num">KF ${pad(i + 1)}</div>
+      <div class="kf-coords">${kf.lat.toFixed(3)}°, ${kf.lng.toFixed(3)}°</div>
+      <div class="kf-meta">zoom ${kf.zoom.toFixed(1)} · pitch ${kf.pitch.toFixed(0)}° · bear ${kf.bearing.toFixed(0)}°</div>
+      <button class="kf-delete" onclick="event.stopPropagation();deleteKeyframe(${kf.id})" aria-label="Delete keyframe">${icon('x')}</button>
+    </div>`;
+  });
+  if (keyframes.length >= 2) html += `<div class="kf-total">Total <b>${totalSeconds().toFixed(1)} s</b></div>`;
+  list.innerHTML = html;
+}
+
+function updateButtons() {
+  const has2 = keyframes.length >= 2;
+  document.getElementById('btn-preview').disabled = !has2;
+  document.getElementById('btn-export').disabled = !has2;
+  if (keyframes.length >= 10) {
+    document.getElementById('btn-capture').disabled = true;
+    document.getElementById('btn-capture').textContent = 'Max 10 keyframes';
+  } else if (map) {
+    document.getElementById('btn-capture').disabled = false;
+    document.getElementById('btn-capture').textContent = '+ Capture current view';
+  }
+}
+
+function clearAll() {
+  if (!confirm('Clear all keyframes?')) return;
+  keyframes = [];
+  renderKFList();
+  updateButtons();
+}
+
+// ─── PREVIEW ───────────────────────────────────────────────────────────────
+async function previewAnimation() {
+  if (!map || keyframes.length < 2) return;
+  const totalDuration = totalSeconds() * 1000;
+  const bar = document.getElementById('playback-bar'), fill = document.getElementById('playback-fill');
+
+  bar.style.display = 'block';
+  document.getElementById('btn-preview').disabled = true;
+  document.getElementById('btn-export').disabled = true;
+  flashHint('Preview in progress...');
+
+  const start = performance.now();
+  const finish = () => {
+    bar.style.display = 'none';
+    fill.style.width = '0%';
+    updateButtons();
+    flashHint('Navigate → capture views with the button');
+  };
+  // Le timestamp passé par rAF peut précéder performance.now() pris au clic -> on relit l'horloge
+  // dans la frame et on clampe, sinon progress < 0 plante la première frame.
+  const frame = () => {
+    try {
+      const progress = Math.min(Math.max((performance.now() - start) / totalDuration, 0), 1);
+      fill.style.width = (progress * 100) + '%';
+      const st = stateAtProgress(progress);
+      map.jumpTo({ center: [st.lng, st.lat], zoom: st.zoom, bearing: st.bearing, pitch: st.pitch });
+      if (progress < 1) requestAnimationFrame(frame); else finish();
+    } catch (e) {
+      console.error('[CineMap] Preview:', e);
+      finish();
+      flashHint('⚠ Preview error: ' + (e && e.message ? e.message : e));
+    }
+  };
+  requestAnimationFrame(frame);
+}
+
+// =========================================================================
+// EXPORT ENGINE — capture vidéo via canvas.captureStream()
+// Tous les overlays (pays/points/textes/images) sont des layers/sources
+// MapLibre natifs (WebGL) -> ils sont déjà dans le canvas capturé,
+// aucune adaptation nécessaire ici par rapport à la version d'origine.
+// =========================================================================
+let exportRestore = null;
+let exportEncoder = null;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Attend que la carte soit entièrement rendue (tuiles chargées, plus de transition)
+function waitMapIdle(timeoutMs = 20000) {
+  return new Promise(resolve => {
+    let timer = null;
+    const done = () => { clearTimeout(timer); map.off('idle', done); resolve(); };
+    timer = setTimeout(done, timeoutMs);
+    map.on('idle', done);
+    map.triggerRepaint();
+  });
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+async function pickAvcConfig(W, H, fps, bitrate) {
+  if (!window.VideoEncoder || !window.VideoFrame || !window.Mp4Muxer) return null;
+  for (const codec of ['avc1.640034', 'avc1.640033', 'avc1.64002A', 'avc1.4D0034', 'avc1.4D002A', 'avc1.42002A']) {
+    for (const latencyMode of ['quality', undefined]) { // qualité d'abord, sinon réglage par défaut
+      try {
+        const cfg = { codec, width: W, height: H, bitrate, framerate: fps, avc: { format: 'avc' } };
+        if (latencyMode) cfg.latencyMode = latencyMode;
+        const r = await VideoEncoder.isConfigSupported(cfg);
+        if (r && r.supported) return r.config;
+      } catch (e) { /* suivant */ }
+    }
+  }
+  return null;
+}
+
+async function startExport() {
+  try { await _runExport(); }
+  catch (e) {
+    console.error('[CineMap] Export:', e);
+    cancelRequested = true;
+    try { if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch (_) {}
+    try { if (exportEncoder && exportEncoder.state !== 'closed') exportEncoder.close(); } catch (_) {}
+    if (exportRestore) exportRestore();
+    document.getElementById('progress-overlay').classList.remove('visible');
+    flashHint('⚠ Export failed: ' + (e && e.message ? e.message : e));
+  }
+}
+
+async function _runExport() {
+  if (!map || keyframes.length < 2) return;
+  ToolEngine.deactivate();
+  OverlayEngine.closeEditor();
+
+  const fps = parseInt(document.getElementById('fps-select').value);
+  const [W, H] = document.getElementById('res-select').value.split('x').map(Number);
+  const segCount = keyframes.length - 1;
+  const bitrate = Math.round((W >= 3840 ? 40e6 : W >= 2560 ? 24e6 : W >= 1920 ? 14e6 : 7e6) * Math.max(1, fps / 30));
+
+  cancelRequested = false;
+  recordedChunks = [];
+  const overlay = document.getElementById('progress-overlay');
+  overlay.classList.add('visible');
+  document.getElementById('progress-fill').style.width = '0%';
+  document.getElementById('progress-info').textContent = `Preparing ${W}×${H}...`;
+
+  const mapContainer = document.getElementById('map');
+  const viewportW = mapContainer.offsetWidth;
+  if (!viewportW) throw new Error('carte invisible');
+  // Le conteneur garde sa taille d'aperçu (16:9) et on monte seulement la densité de pixels
+  // (pixelRatio = W / largeur). Cadrage, tailles de texte, icônes, lignes et overlays sont donc rendus
+  // EXACTEMENT comme dans l'aperçu, juste plus nets. (Avant : conteneur W×H à pixelRatio 1 →
+  // labels minuscules, qui ressemblent à des points blancs sur fond sombre.)
+  const zoomOffset = 0;
+  const origDpr = window.devicePixelRatio || 1;
+  const cfg = await pickAvcConfig(W, H, fps, bitrate);
+  // Supersampling 2× (≤1080p, chemin WebCodecs) : rendu à 2× la définition puis réduction -> les détails d'1 px
+  // (petits labels, tirets, bruit GPU) sont lissés au lieu de sortir en points brillants.
+  const ssaa = (cfg && document.getElementById('quality-select').value === 'smooth' && W <= 1920) ? 2 : 1;
+  const Wc = W * ssaa, Hc = H * ssaa;
+  map.setPixelRatio(Wc / viewportW);
+  exportRestore = () => { map.setPixelRatio(origDpr); map.resize(); exportRestore = null; };
+  // Pas de fondu raster : sinon chaque frame attend la fin du fondu
+  try { map.getStyle().layers.forEach(l => { if (l.type === 'raster') map.setPaintProperty(l.id, 'raster-fade-duration', 0); }); } catch (e) {}
+
+  map.resize();
+  await waitMapIdle();
+
+  const canvas = map.getCanvas();
+  if (Math.abs(canvas.width - Wc) > 2 * ssaa || Math.abs(canvas.height - Hc) > 2 * ssaa) {
+    throw new Error(`canvas ${canvas.width}×${canvas.height} instead of ${Wc}×${Hc} (GPU/browser limit — switch to Standard or pick a lower resolution)`);
+  }
+
+  const ctx = { W, H, fps, totalMs: totalSeconds() * 1000, zoomOffset, canvas, bitrate, cfg };
+  let ok = false;
+  try {
+    if (cfg) {
+      document.getElementById('progress-info').textContent = `${W}×${H} · frame-accurate (WebCodecs H.264)`;
+      ok = await _exportFrameAccurate(ctx);
+    } else {
+      flashHint('WebCodecs/H.264 indisponible → export temps réel (durée exacte, mais images pouvant sauter)');
+      ok = await _exportRealtime(ctx);
+    }
+  } finally {
+    if (exportRestore) exportRestore();
+    overlay.classList.remove('visible');
+  }
+  flashHint(ok ? `Export ${W}×${H} done ✓` : 'Export cancelled');
+}
+
+// Rendu image par image : on attend 'idle' (tuiles chargées) avant CHAQUE frame -> aucune image
+// manquante, timestamps exacts (f / fps), durée vidéo exacte, indépendant de la vitesse du PC.
+async function _exportFrameAccurate(ctx) {
+  const { W, H, fps, totalMs, zoomOffset, canvas, cfg } = ctx;
+  const target = new Mp4Muxer.ArrayBufferTarget();
+  const muxer = new Mp4Muxer.Muxer({ target, video: { codec: 'avc', width: W, height: H }, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
+  let encError = null;
+  const encoder = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error: e => { encError = e; },
+  });
+  exportEncoder = encoder;
+  encoder.configure(cfg);
+
+  const total = Math.max(2, Math.round(fps * totalMs / 1000));
+  // Frame opaque exacte W×H : aplatit l'alpha sur noir (pas de frange transparente) et recale les ±1 px
+  const flat = document.createElement('canvas');
+  flat.width = W; flat.height = H;
+  const fctx = flat.getContext('2d', { alpha: false });
+  fctx.imageSmoothingQuality = 'high';
+  const frameUs = Math.round(1e6 / fps);
+  for (let f = 0; f < total; f++) {
+    if (cancelRequested) { encoder.close(); return false; }
+    if (encError) throw encError;
+    const st = stateAtProgress(f / (total - 1));
+    map.jumpTo({ center: [st.lng, st.lat], zoom: st.zoom + zoomOffset, bearing: st.bearing, pitch: st.pitch });
+    await waitMapIdle();
+    fctx.fillStyle = '#000';
+    fctx.fillRect(0, 0, W, H);
+    fctx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, W, H);
+    const frame = new VideoFrame(flat, { timestamp: Math.round(f * 1e6 / fps), duration: frameUs });
+    encoder.encode(frame, { keyFrame: f % (fps * 2) === 0 });
+    frame.close();
+    while (encoder.encodeQueueSize > 4) await sleep(2);
+    const pct = Math.round(((f + 1) / total) * 100);
+    document.getElementById('progress-fill').style.width = pct + '%';
+    document.getElementById('progress-info').textContent = `${W}×${H} · frame ${f + 1} / ${total} — ${pct}%`;
+  }
+  document.getElementById('progress-info').textContent = 'Finalizing MP4...';
+  await encoder.flush();
+  if (encError) throw encError;
+  encoder.close();
+  muxer.finalize();
+  downloadBlob(new Blob([target.buffer], { type: 'video/mp4' }), `cinemap_${W}x${H}_${fps}fps_${Date.now()}.mp4`);
+  return true;
+}
+
+// Repli : enregistrement temps réel (progression pilotée par l'horloge)
+async function _exportRealtime(ctx) {
+  const { W, H, fps, totalMs, zoomOffset, canvas, bitrate } = ctx;
+  let mimeType = 'video/webm';
+  if (MediaRecorder.isTypeSupported('video/mp4;codecs=avc1')) mimeType = 'video/mp4;codecs=avc1';
+  else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) mimeType = 'video/webm;codecs=vp9';
+  mediaRecorder = new MediaRecorder(canvas.captureStream(fps), { mimeType, videoBitsPerSecond: bitrate });
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+  const stopped = new Promise(r => { mediaRecorder.onstop = r; });
+  mediaRecorder.start(100);
+
+  const t0 = performance.now();
+  let progress = 0;
+  while (!cancelRequested && progress < 1) {
+    progress = Math.min((performance.now() - t0) / totalMs, 1);
+    const st = stateAtProgress(progress);
+    map.jumpTo({ center: [st.lng, st.lat], zoom: st.zoom + zoomOffset, bearing: st.bearing, pitch: st.pitch });
+    await new Promise(r => { map.once('render', () => requestAnimationFrame(r)); map.triggerRepaint(); });
+    const pct = Math.round(progress * 100);
+    document.getElementById('progress-fill').style.width = pct + '%';
+    document.getElementById('progress-info').textContent = `${W}×${H} · ${pct}% (temps réel)`;
+  }
+  await sleep(250);
+  if (mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  await stopped;
+  if (cancelRequested) return false;
+  const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+  downloadBlob(new Blob(recordedChunks, { type: mimeType }), `cinemap_${W}x${H}_${fps}fps_${Date.now()}.${ext}`);
+  return true;
+}
+
+// Sauvegarde la vue courante en PNG sans perte, par le MÊME chemin que l'export (pixelRatio, supersampling, aplatissement).
+// Sert aussi à diagnostiquer : si un défaut est dans le PNG, il vient du rendu ; s'il n'est que dans le MP4, de la compression.
+async function exportFramePNG() {
+  if (!map) return;
+  const [W, H] = document.getElementById('res-select').value.split('x').map(Number);
+  const ssaa = (document.getElementById('quality-select').value === 'smooth' && W <= 1920) ? 2 : 1;
+  const viewportW = document.getElementById('map').offsetWidth;
+  const origDpr = window.devicePixelRatio || 1;
+  flashHint('Rendering PNG...');
+  try {
+    map.setPixelRatio(W * ssaa / viewportW);
+    map.resize();
+    await waitMapIdle();
+    const flat = document.createElement('canvas');
+    flat.width = W; flat.height = H;
+    const c = flat.getContext('2d', { alpha: false });
+    c.imageSmoothingQuality = 'high';
+    c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+    const src = map.getCanvas();
+    c.drawImage(src, 0, 0, src.width, src.height, 0, 0, W, H);
+    const blob = await new Promise(r => flat.toBlob(r, 'image/png'));
+    downloadBlob(blob, `cinemap_frame_${W}x${H}_${Date.now()}.png`);
+    flashHint('PNG saved ✓');
+  } catch (e) {
+    console.error('[CineMap] PNG:', e);
+    flashHint('⚠ PNG failed: ' + (e && e.message ? e.message : e));
+  } finally {
+    map.setPixelRatio(origDpr);
+    map.resize();
+  }
+}
+
+function cancelExport() {
+  cancelRequested = true;
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { mediaRecorder.stop(); } catch (_) {} }
+}
+
+// ─── RECHERCHE / GÉOCODAGE (lieux) ──────────────────────────────────────────
+function showSearchBox(html) {
+  const box = document.getElementById('search-results');
+  box.innerHTML = html;
+  box.classList.add('visible');
+}
+
+function hideSearchResults() {
+  lastSearchResults = [];
+  const box = document.getElementById('search-results');
+  box.classList.remove('visible');
+  box.innerHTML = '';
+}
+
+async function doSearch() {
+  const query = document.getElementById('search-input').value.trim();
+  if (!query) { hideSearchResults(); return; }
+
+  if (!currentApiKey) {
+    showSearchBox(`<div class="search-empty">⚠ Enter your Maptiler API key first</div>`);
+    return;
+  }
+
+  showSearchBox(`<div class="search-loading">Searching...</div>`);
+
+  try {
+    const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?key=${currentApiKey}&language=en&limit=6`;
+    const res = await fetch(url);
+    const data = await res.json();
+    lastSearchResults = data.features || [];
+    renderSearchResults();
+  } catch (err) {
+    console.error('Search error', err);
+    showSearchBox(`<div class="search-empty">⚠ Search failed</div>`);
+  }
+}
+
+function renderSearchResults() {
+  if (lastSearchResults.length === 0) {
+    showSearchBox(`<div class="search-empty">No results found</div>`);
+    return;
+  }
+  const html = lastSearchResults.map((f, i) => {
+    const name = f.text || f.place_name || 'Place';
+    const context = f.place_name && f.place_name !== name ? f.place_name : (f.place_type || []).join(', ');
+    return `
+      <div class="search-result-item" onclick="goToSearchResult(${i})">
+        <div class="search-result-name">${escapeHtml(name)}</div>
+        <div class="search-result-context">${escapeHtml(context)}</div>
+      </div>`;
+  }).join('');
+  showSearchBox(html);
+}
+
+function bboxToZoom(bbox) {
+  if (!bbox) return 12;
+  const [minLng, minLat, maxLng, maxLat] = bbox;
+  const lngDiff = Math.max(Math.abs(maxLng - minLng), 0.0005);
+  const latDiff = Math.max(Math.abs(maxLat - minLat), 0.0005);
+  const maxDiff = Math.max(lngDiff, latDiff);
+  const zoom = Math.log2(360 / maxDiff) - 1.2;
+  return Math.max(2, Math.min(17, zoom));
+}
+
+function goToSearchResult(index) {
+  const feature = lastSearchResults[index];
+  if (!map || !feature || !feature.center) return;
+
+  const [lng, lat] = feature.center;
+  const zoom = bboxToZoom(feature.bbox);
+
+  map.flyTo({
+    center: [lng, lat],
+    zoom,
+    duration: 1600,
+    essential: true
+  });
+
+  document.getElementById('search-input').value = feature.place_name || feature.text || '';
+  flashHint(`→ ${feature.place_name || feature.text}`);
+  hideSearchResults();
+}
+
+document.getElementById('search-input').addEventListener('input', () => {
+  clearTimeout(searchDebounceTimer);
+  const q = document.getElementById('search-input').value.trim();
+  if (q.length < 2) { hideSearchResults(); return; }
+  searchDebounceTimer = setTimeout(doSearch, 400);
+});
+
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    clearTimeout(searchDebounceTimer);
+    if (lastSearchResults.length > 0) {
+      goToSearchResult(0);
+    } else {
+      doSearch();
+    }
+  } else if (e.key === 'Escape') {
+    hideSearchResults();
+  }
+});
+
+document.addEventListener('click', e => {
+  const box = document.getElementById('map-search');
+  if (box && !box.contains(e.target)) hideSearchResults();
+});
+
+// ─── INIT ──────────────────────────────────────────────────────────────────
+document.getElementById('api-key').addEventListener('keydown', e => {
+  if (e.key === 'Enter') initMap();
+});
+
+renderKFList();
+OverlayEngine.renderList();
+
+// ─── DÉMARRAGE : clé pré-remplie dans la barre, carte chargée directement (plus de popup) ───
+(function startup() {
+  const keyInput = document.getElementById('api-key');
+  if (!keyInput.value.trim()) keyInput.value = API_KEY_PRESET;
+  initMap();
+})();
+</script>
+</body>
+</html>
